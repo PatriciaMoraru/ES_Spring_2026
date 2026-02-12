@@ -1,3 +1,4 @@
+// Lab 1.1 - LED control application via serial commands
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
@@ -6,16 +7,19 @@
 #include "dd_led/dd_led.h"
 #include "srv_serial_stdio/srv_serial_stdio.h"
 
-#define CMD_BUFFER_SIZE 64
-#define APP_LED_PIN 12
+#define CMD_BUFFER_SIZE 64  // Maximum command length
+#define APP_LED_PIN 12      // Pin connected to the LED
 
-static char cmdBuffer[CMD_BUFFER_SIZE];
-static int cmdIndex = 0;
+static char cmdBuffer[CMD_BUFFER_SIZE];  // Buffer for the incoming command
+static int cmdIndex = 0;                 // Current position in the buffer
 
+// Parse and execute the command stored in cmdBuffer
 static void processCommand()
 {
+    // Null-terminate the command string
     cmdBuffer[cmdIndex] = '\0';
 
+    // If empty command, just show prompt
     if (cmdIndex == 0)
     {
         printf("\n> ");
@@ -24,6 +28,7 @@ static void processCommand()
 
     printf("\nReceived: %s\n", cmdBuffer);
 
+    // Match command and execute corresponding LED action
     if (strcmp(cmdBuffer, "led on") == 0)
     {
         ddLedOn();
@@ -48,10 +53,12 @@ static void processCommand()
         printf("ERROR: Unknown command\n");
     }
 
+    // Reset buffer and show prompt for next command
     cmdIndex = 0;
     printf("> ");
 }
 
+// Initialize serial communication and LED, print welcome message
 void appLab11Setup()
 {
     srvSerialSetup();
@@ -62,8 +69,10 @@ void appLab11Setup()
     printf("> ");
 }
 
+// Read one character at a time and build the command
 void appLab11Loop()
 {
+    // Exit if no data available
     if (!Serial.available())
     {
         return;
@@ -71,19 +80,23 @@ void appLab11Loop()
 
     int c = getchar();
 
+    // Ignore carriage return
     if (c == '\r')
     {
         return;
     }
+    // Newline means the command is complete
     else if (c == '\n')
     {
         processCommand();
     }
+    // Handle backspace (ASCII 8 or 127)
     else if ((c == '\b' || c == 127) && cmdIndex > 0)
     {
         cmdIndex--;
         printf("\b \b");
     }
+    // Append character to buffer and echo it back
     else if (cmdIndex < CMD_BUFFER_SIZE - 1)
     {
         cmdBuffer[cmdIndex++] = (char)c;
