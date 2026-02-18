@@ -1,47 +1,68 @@
-// LED device driver implementation
+// LED device driver - supports multiple LEDs indexed by ID
 #include <Arduino.h>
 #include "dd_led.h"
 
-static int DD_LED_PIN;         // Pin number assigned to the LED
-static bool ledState = false;  // Current state of the LED
+static int ledPins[DD_LED_MAX_COUNT];
+static bool ledStates[DD_LED_MAX_COUNT];
 
-// Configure the LED pin and start with LED off
-void ddLedSetup(int pin)
+void ddLedSetup(int ledId, int pin)
 {
-    DD_LED_PIN = pin;
-    pinMode(DD_LED_PIN, OUTPUT);
-    ddLedOff();
-}
-
-// Turn the LED on
-void ddLedOn()
-{
-    ledState = true;
-    digitalWrite(DD_LED_PIN, HIGH);
-}
-
-// Turn the LED off
-void ddLedOff()
-{
-    ledState = false;
-    digitalWrite(DD_LED_PIN, LOW);
-}
-
-// Toggle the LED between on and off
-void ddLedToggle()
-{
-    if(ledState)
+    if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)
     {
-        ddLedOff();
+        return;
+    }
+
+    ledPins[ledId] = pin;
+    ledStates[ledId] = false;
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, LOW);
+}
+
+void ddLedOn(int ledId)
+{
+    if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)
+    {
+        return;
+    }
+
+    ledStates[ledId] = true;
+    digitalWrite(ledPins[ledId], HIGH);
+}
+
+void ddLedOff(int ledId)
+{
+    if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)
+    {
+        return;
+    }
+
+    ledStates[ledId] = false;
+    digitalWrite(ledPins[ledId], LOW);
+}
+
+void ddLedToggle(int ledId)
+{
+    if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)
+    {
+        return;
+    }
+
+    if (ledStates[ledId])
+    {
+        ddLedOff(ledId);
     }
     else
     {
-        ddLedOn();
+        ddLedOn(ledId);
     }
 }
 
-// Return true if the LED is currently on
-bool ddLedIsOn()
+bool ddLedIsOn(int ledId)
 {
-    return ledState;
+    if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)
+    {
+        return false;
+    }
+
+    return ledStates[ledId];
 }
