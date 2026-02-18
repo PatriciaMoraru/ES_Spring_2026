@@ -9,6 +9,7 @@
 
 #define CMD_BUFFER_SIZE 64  // Maximum command length
 #define APP_LED_PIN 12      // Pin connected to the LED
+#define APP_LED_ID  0       // LED index in dd_led module
 
 static char cmdBuffer[CMD_BUFFER_SIZE];  // Buffer for the incoming command
 static int cmdIndex = 0;                 // Current position in the buffer
@@ -31,22 +32,22 @@ static void processCommand()
     // Match command and execute corresponding LED action
     if (strcmp(cmdBuffer, "led on") == 0)
     {
-        ddLedOn();
+        ddLedOn(APP_LED_ID);
         printf("OK: LED is ON\n");
     }
     else if (strcmp(cmdBuffer, "led off") == 0)
     {
-        ddLedOff();
+        ddLedOff(APP_LED_ID);
         printf("OK: LED is OFF\n");
     }
     else if (strcmp(cmdBuffer, "led toggle") == 0)
     {
-        ddLedToggle();
-        printf("OK: LED toggled -> %s\n", ddLedIsOn() ? "ON" : "OFF");
+        ddLedToggle(APP_LED_ID);
+        printf("OK: LED toggled -> %s\n", ddLedIsOn(APP_LED_ID) ? "ON" : "OFF");
     }
     else if (strcmp(cmdBuffer, "led status") == 0)
     {
-        printf("OK: LED is %s\n", ddLedIsOn() ? "ON" : "OFF");
+        printf("OK: LED is %s\n", ddLedIsOn(APP_LED_ID) ? "ON" : "OFF");
     }
     else
     {
@@ -62,7 +63,7 @@ static void processCommand()
 void appLab11Setup()
 {
     srvSerialSetup();
-    ddLedSetup(APP_LED_PIN);
+    ddLedSetup(APP_LED_ID, APP_LED_PIN);
 
     printf("Lab 1.1 - LED Control\n");
     printf("Type: led on | led off | led toggle | led status\n");

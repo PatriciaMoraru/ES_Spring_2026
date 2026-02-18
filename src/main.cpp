@@ -1,15 +1,12 @@
-// Main entry point for the application
 #include <Arduino.h>
-#include "lab_1_1/app_lab_1_1.h"
+#include "lab_1_2/app_lab_1_2.h"
 
-// Arduino setup - called once at startup
 void setup()
 {
-  appLab11Setup();
+    appLab12Setup();
 }
 
-// Arduino loop - called repeatedly
 void loop()
 {
-  appLab11Loop();
+    appLab12Loop();
 }
