@@ -2,9 +2,11 @@
 #include <Arduino.h>
 #include "dd_led.h"
 
+// Arrays storing pin number and state for each LED
 static int ledPins[DD_LED_MAX_COUNT];
 static bool ledStates[DD_LED_MAX_COUNT];
 
+// Register an LED: assign pin, set as output, start OFF
 void ddLedSetup(int ledId, int pin)
 {
     if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)
@@ -18,6 +20,7 @@ void ddLedSetup(int ledId, int pin)
     digitalWrite(pin, LOW);
 }
 
+// Turn the specified LED on
 void ddLedOn(int ledId)
 {
     if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)
@@ -29,6 +32,7 @@ void ddLedOn(int ledId)
     digitalWrite(ledPins[ledId], HIGH);
 }
 
+// Turn the specified LED off
 void ddLedOff(int ledId)
 {
     if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)
@@ -40,6 +44,7 @@ void ddLedOff(int ledId)
     digitalWrite(ledPins[ledId], LOW);
 }
 
+// Toggle the specified LED
 void ddLedToggle(int ledId)
 {
     if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)
@@ -57,6 +62,7 @@ void ddLedToggle(int ledId)
     }
 }
 
+// Return true if the specified LED is currently on
 bool ddLedIsOn(int ledId)
 {
     if (ledId < 0 || ledId >= DD_LED_MAX_COUNT)

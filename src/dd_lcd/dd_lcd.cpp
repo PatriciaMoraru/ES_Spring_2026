@@ -3,12 +3,16 @@
 #include <LiquidCrystal_I2C.h>
 #include "dd_lcd.h"
 
+// LCD object pointer and display dimensions
 static LiquidCrystal_I2C* lcd;
 static uint8_t lcdCols;
 static uint8_t lcdRows;
+
+// Internal cursor position tracking
 static uint8_t cursorCol;
 static uint8_t cursorRow;
 
+// Initialize LCD: create instance, turn on backlight, clear screen
 void ddLcdSetup(uint8_t address, uint8_t cols, uint8_t rows)
 {
     lcdCols = cols;
@@ -24,6 +28,7 @@ void ddLcdSetup(uint8_t address, uint8_t cols, uint8_t rows)
     lcd->clear();
 }
 
+// Clear display and reset cursor to top-left
 void ddLcdClear()
 {
     lcd->clear();
@@ -31,6 +36,7 @@ void ddLcdClear()
     cursorRow = 0;
 }
 
+// Move cursor to a specific position
 void ddLcdSetCursor(uint8_t col, uint8_t row)
 {
     cursorCol = col;
@@ -38,8 +44,10 @@ void ddLcdSetCursor(uint8_t col, uint8_t row)
     lcd->setCursor(col, row);
 }
 
+// Print a single character, handling newline and auto-wrap
 void ddLcdPrintChar(char c)
 {
+    // Newline: move to start of next row
     if (c == '\n')
     {
         cursorCol = 0;
@@ -54,6 +62,7 @@ void ddLcdPrintChar(char c)
         return;
     }
 
+    // Carriage return: move to start of current row
     if (c == '\r')
     {
         cursorCol = 0;
@@ -61,9 +70,11 @@ void ddLcdPrintChar(char c)
         return;
     }
 
+    // Write character at current position
     lcd->write(c);
     cursorCol++;
 
+    // Auto-wrap to next row if end of line reached
     if (cursorCol >= lcdCols)
     {
         cursorCol = 0;
@@ -78,6 +89,7 @@ void ddLcdPrintChar(char c)
     }
 }
 
+// Print a full string character by character
 void ddLcdPrint(const char* str)
 {
     while (*str)
