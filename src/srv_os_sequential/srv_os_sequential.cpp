@@ -9,7 +9,6 @@
 static SrvOsTask tasks[SRV_OS_MAX_TASKS];
 static int taskCount = 0;
 
-// IMPORTANT: counter, not bool -> prevents losing ticks if tasks take longer than 1ms
 static volatile uint16_t tickCount = 0;
 
 // Timer1 CTC interrupt: increments tick count every 1ms
@@ -18,7 +17,7 @@ ISR(TIMER1_COMPA_vect)
     tickCount++;
 }
 
-// Configure Timer1 for 1ms CTC interrupt (16MHz clock, prescaler 8)
+// Configures Timer1 for 1ms CTC interrupt (16MHz clock, prescaler 8)
 static void timer1Init(void)
 {
     cli();
