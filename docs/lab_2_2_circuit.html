@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lab 2.2 — Circuit Wiring</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#1a1a2e;
+    color:#e0e0e0;
+    font-family:'JetBrains Mono',monospace;
+    display:flex; justify-content:center; align-items:center;
+    min-height:100vh; padding:2rem;
+  }
+  svg { filter: drop-shadow(0 0 40px rgba(59,130,246,0.08)); }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 900 520" width="900" height="520" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Title -->
+  <text x="30" y="32" fill="#60a5fa" font-size="18" font-weight="700" font-family="JetBrains Mono,monospace">Lab 2.2 — Circuit Wiring (Arduino Mega 2560)</text>
+  <text x="30" y="52" fill="#8892a4" font-size="11" font-family="JetBrains Mono,monospace">Button uses INPUT_PULLUP (no ext. resistor) · LEDs need 220Ω each</text>
+
+  <!-- Arduino Mega Box -->
+  <rect x="40" y="80" width="180" height="380" rx="12" fill="#16213e" stroke="#3b82f6" stroke-width="2"/>
+  <text x="130" y="108" text-anchor="middle" fill="#3b82f6" font-size="14" font-weight="700" font-family="JetBrains Mono,monospace">ARDUINO</text>
+  <text x="130" y="124" text-anchor="middle" fill="#8892a4" font-size="11" font-family="JetBrains Mono,monospace">Mega 2560</text>
+
+  <!-- Pin dots and labels -->
+  <!-- Pin 6 -->
+  <circle cx="220" cy="170" r="6" fill="#60a5fa"/>
+  <text x="205" y="174" text-anchor="end" fill="#60a5fa" font-size="13" font-weight="700" font-family="JetBrains Mono,monospace">Pin 6</text>
+
+  <!-- Pin 7 -->
+  <circle cx="220" cy="220" r="6" fill="#4ade80"/>
+  <text x="205" y="224" text-anchor="end" fill="#4ade80" font-size="13" font-weight="700" font-family="JetBrains Mono,monospace">Pin 7</text>
+
+  <!-- Pin 8 -->
+  <circle cx="220" cy="270" r="6" fill="#f87171"/>
+  <text x="205" y="274" text-anchor="end" fill="#f87171" font-size="13" font-weight="700" font-family="JetBrains Mono,monospace">Pin 8</text>
+
+  <!-- Pin 9 -->
+  <circle cx="220" cy="320" r="6" fill="#facc15"/>
+  <text x="205" y="324" text-anchor="end" fill="#facc15" font-size="13" font-weight="700" font-family="JetBrains Mono,monospace">Pin 9</text>
+
+  <!-- Pin 13 -->
+  <circle cx="220" cy="370" r="6" fill="#fb923c"/>
+  <text x="205" y="374" text-anchor="end" fill="#fb923c" font-size="13" font-weight="700" font-family="JetBrains Mono,monospace">Pin 13</text>
+
+  <!-- GND -->
+  <circle cx="220" cy="420" r="6" fill="#8892a4"/>
+  <text x="205" y="424" text-anchor="end" fill="#8892a4" font-size="13" font-weight="700" font-family="JetBrains Mono,monospace">GND</text>
+
+  <!-- ===== WIRES ===== -->
+  <!-- Pin 6 -> Button -->
+  <line x1="226" y1="170" x2="410" y2="170" stroke="#60a5fa" stroke-width="2" stroke-dasharray="6,3"/>
+  <!-- Pin 7 -> Green -->
+  <line x1="226" y1="220" x2="410" y2="220" stroke="#4ade80" stroke-width="2" stroke-dasharray="6,3"/>
+  <!-- Pin 8 -> Red -->
+  <line x1="226" y1="270" x2="410" y2="270" stroke="#f87171" stroke-width="2" stroke-dasharray="6,3"/>
+  <!-- Pin 9 -> Yellow -->
+  <line x1="226" y1="320" x2="410" y2="320" stroke="#facc15" stroke-width="2" stroke-dasharray="6,3"/>
+  <!-- Pin 13 -> Heartbeat -->
+  <line x1="226" y1="370" x2="410" y2="370" stroke="#fb923c" stroke-width="2" stroke-dasharray="6,3"/>
+
+  <!-- GND wire down to rail -->
+  <line x1="226" y1="420" x2="280" y2="420" stroke="#8892a4" stroke-width="2"/>
+  <line x1="280" y1="420" x2="280" y2="480" stroke="#8892a4" stroke-width="2"/>
+
+  <!-- GND drops from components -->
+  <line x1="432" y1="190" x2="432" y2="480" stroke="#8892a4" stroke-width="1.5" stroke-dasharray="3,4" opacity="0.4"/>
+  <line x1="432" y1="240" x2="432" y2="480" stroke="#8892a4" stroke-width="0"/>
+  <line x1="432" y1="290" x2="432" y2="480" stroke="#8892a4" stroke-width="0"/>
+  <line x1="432" y1="340" x2="432" y2="480" stroke="#8892a4" stroke-width="0"/>
+
+  <line x1="530" y1="240" x2="530" y2="480" stroke="#8892a4" stroke-width="1.5" stroke-dasharray="3,4" opacity="0.4"/>
+  <line x1="628" y1="290" x2="628" y2="480" stroke="#8892a4" stroke-width="1.5" stroke-dasharray="3,4" opacity="0.4"/>
+  <line x1="726" y1="340" x2="726" y2="480" stroke="#8892a4" stroke-width="1.5" stroke-dasharray="3,4" opacity="0.4"/>
+
+  <!-- ===== COMPONENTS ===== -->
+
+  <!-- BUTTON -->
+  <rect x="410" y="150" width="44" height="44" rx="10" fill="rgba(96,165,250,0.1)" stroke="#60a5fa" stroke-width="2"/>
+  <text x="432" y="178" text-anchor="middle" fill="#60a5fa" font-size="16" font-weight="700" font-family="JetBrains Mono,monospace">⏎</text>
+  <text x="464" y="164" fill="#60a5fa" font-size="12" font-weight="700" font-family="JetBrains Mono,monospace">BUTTON</text>
+  <text x="464" y="180" fill="#8892a4" font-size="10" font-family="JetBrains Mono,monospace">other leg → GND</text>
+
+  <!-- GREEN LED -->
+  <rect x="410" y="200" width="44" height="44" rx="10" fill="rgba(74,222,128,0.1)" stroke="#4ade80" stroke-width="2"/>
+  <text x="432" y="228" text-anchor="middle" fill="#4ade80" font-size="16" font-weight="700" font-family="JetBrains Mono,monospace">G</text>
+  <text x="464" y="214" fill="#4ade80" font-size="12" font-weight="700" font-family="JetBrains Mono,monospace">GREEN LED</text>
+  <text x="464" y="230" fill="#8892a4" font-size="10" font-family="JetBrains Mono,monospace">220Ω → anode(+) → GND</text>
+
+  <!-- RED LED -->
+  <rect x="410" y="250" width="44" height="44" rx="10" fill="rgba(248,113,113,0.1)" stroke="#f87171" stroke-width="2"/>
+  <text x="432" y="278" text-anchor="middle" fill="#f87171" font-size="16" font-weight="700" font-family="JetBrains Mono,monospace">R</text>
+  <text x="464" y="264" fill="#f87171" font-size="12" font-weight="700" font-family="JetBrains Mono,monospace">RED LED</text>
+  <text x="464" y="280" fill="#8892a4" font-size="10" font-family="JetBrains Mono,monospace">220Ω → anode(+) → GND</text>
+
+  <!-- YELLOW LED -->
+  <rect x="410" y="300" width="44" height="44" rx="10" fill="rgba(250,204,21,0.1)" stroke="#facc15" stroke-width="2"/>
+  <text x="432" y="328" text-anchor="middle" fill="#facc15" font-size="16" font-weight="700" font-family="JetBrains Mono,monospace">Y</text>
+  <text x="464" y="314" fill="#facc15" font-size="12" font-weight="700" font-family="JetBrains Mono,monospace">YELLOW LED</text>
+  <text x="464" y="330" fill="#8892a4" font-size="10" font-family="JetBrains Mono,monospace">220Ω → anode(+) → GND</text>
+
+  <!-- HEARTBEAT -->
+  <rect x="410" y="350" width="44" height="44" rx="10" fill="rgba(251,146,60,0.1)" stroke="#fb923c" stroke-width="2"/>
+  <text x="432" y="378" text-anchor="middle" fill="#fb923c" font-size="16" font-weight="700" font-family="JetBrains Mono,monospace">H</text>
+  <text x="464" y="364" fill="#fb923c" font-size="12" font-weight="700" font-family="JetBrains Mono,monospace">HEARTBEAT</text>
+  <text x="464" y="380" fill="#8892a4" font-size="10" font-family="JetBrains Mono,monospace">built-in LED (no wiring)</text>
+
+  <!-- GND RAIL -->
+  <line x1="260" y1="480" x2="760" y2="480" stroke="#8892a4" stroke-width="3" stroke-linecap="round"/>
+  <text x="510" y="500" text-anchor="middle" fill="#8892a4" font-size="12" font-weight="700" font-family="JetBrains Mono,monospace">⏚ GND RAIL (breadboard)</text>
+
+  <!-- Small ticks on GND rail -->
+  <line x1="280" y1="476" x2="280" y2="484" stroke="#8892a4" stroke-width="2"/>
+  <line x1="432" y1="476" x2="432" y2="484" stroke="#8892a4" stroke-width="2"/>
+  <line x1="530" y1="476" x2="530" y2="484" stroke="#8892a4" stroke-width="2"/>
+  <line x1="628" y1="476" x2="628" y2="484" stroke="#8892a4" stroke-width="2"/>
+  <line x1="726" y1="476" x2="726" y2="484" stroke="#8892a4" stroke-width="2"/>
+
+  <!-- Labels under GND ticks -->
+  <text x="280" y="498" text-anchor="middle" fill="#8892a4" font-size="8" font-family="JetBrains Mono,monospace">MCU</text>
+  <text x="432" y="498" text-anchor="middle" fill="#8892a4" font-size="8" font-family="JetBrains Mono,monospace">BTN</text>
+  <text x="530" y="498" text-anchor="middle" fill="#8892a4" font-size="8" font-family="JetBrains Mono,monospace">G</text>
+  <text x="628" y="498" text-anchor="middle" fill="#8892a4" font-size="8" font-family="JetBrains Mono,monospace">R</text>
+  <text x="726" y="498" text-anchor="middle" fill="#8892a4" font-size="8" font-family="JetBrains Mono,monospace">Y</text>
+
+</svg>
+</body>
+</html>
