@@ -12,66 +12,66 @@
 
 // --- Pin assignments ---
 // Pins 2,3,5 are Timer 3 OC pins on ATmega2560 (used by FreeRTOS tick).
-#define PIN_BUTTON        6
-#define PIN_LED_GREEN     7
-#define PIN_LED_RED       8
-#define PIN_LED_YELLOW    9
+#define PIN_BUTTON 6
+#define PIN_LED_GREEN 7
+#define PIN_LED_RED 8
+#define PIN_LED_YELLOW 9
 #define PIN_LED_HEARTBEAT 13
 
 // --- Logical IDs for device drivers ---
-#define BTN_MAIN          0
-#define LED_GREEN         0
-#define LED_RED           1
-#define LED_YELLOW        2
-#define LED_HEARTBEAT     3
+#define BTN_MAIN 0
+#define LED_GREEN 0
+#define LED_RED 1
+#define LED_YELLOW 2
+#define LED_HEARTBEAT 3
 
 // Short/long press threshold
-#define SHORT_PRESS_MAX_MS   500
+#define SHORT_PRESS_MAX_MS 500
 
 // Guarantees at least 1 tick even at low tick rates (e.g. 62 Hz)
 #define MS_TO_TICKS(ms) \
     ((pdMS_TO_TICKS(ms) > 0) ? pdMS_TO_TICKS(ms) : (TickType_t)1)
 
 // --- Task scheduling configuration (ms) ---
-#define PERIOD_TASK1      10      // Button scan
-#define PERIOD_TASK2      50      // Stats + blink
-#define PERIOD_TASK3      10000   // STDIO report
-#define PERIOD_HEARTBEAT  500
+#define PERIOD_TASK1 10    // Button scan
+#define PERIOD_TASK2 50    // Stats + blink
+#define PERIOD_TASK3 10000 // STDIO report
+#define PERIOD_HEARTBEAT 500
 
-#define OFFSET_TASK1      0
-#define OFFSET_TASK2      5
-#define OFFSET_TASK3      10
-#define OFFSET_HEARTBEAT  1
+#define OFFSET_TASK1 0
+#define OFFSET_TASK2 5
+#define OFFSET_TASK3 10
+#define OFFSET_HEARTBEAT 1
 
 // Yellow LED blink counts per press type
-#define BLINK_SHORT_COUNT    5
-#define BLINK_LONG_COUNT     10
+#define BLINK_SHORT_COUNT 5
+#define BLINK_LONG_COUNT 10
 
 // Rapid-press streak detection
-#define STREAK_WINDOW_TICKS  MS_TO_TICKS(1000)
-#define STREAK_THRESHOLD     3
-#define CELEBRATION_FLASHES  4
+#define STREAK_WINDOW_TICKS MS_TO_TICKS(1000)
+#define STREAK_THRESHOLD 3
+#define CELEBRATION_FLASHES 4
 
 // --- Synchronization primitives ---
-static SemaphoreHandle_t xPressSem   = NULL;   // Binary sem: Task1 -> Task2 event
-static SemaphoreHandle_t xPressMutex = NULL;   // Protects press event data
-static SemaphoreHandle_t xStatsMutex = NULL;   // Protects statistics counters
-static SemaphoreHandle_t xStreakMutex = NULL;   // Protects streak data
+static SemaphoreHandle_t xPressSem = NULL;    // Binary sem: Task1 -> Task2 event
+static SemaphoreHandle_t xPressMutex = NULL;  // Protects press event data
+static SemaphoreHandle_t xStatsMutex = NULL;  // Protects statistics counters
+static SemaphoreHandle_t xStreakMutex = NULL; // Protects streak data
 
 // Press event data (Task1 writes, Task2 reads)
 static unsigned long sharedPressDuration = 0;
-static bool          sharedPressWasShort = false;
+static bool sharedPressWasShort = false;
 
 // Statistics (Task2 updates, Task3 reads and resets)
-static unsigned long totalPresses  = 0;
-static unsigned long shortPresses  = 0;
-static unsigned long longPresses   = 0;
+static unsigned long totalPresses = 0;
+static unsigned long shortPresses = 0;
+static unsigned long longPresses = 0;
 static unsigned long totalDuration = 0;
 
 // Streak tracking (Task2 updates, Task3 reads bestStreak)
-static TickType_t    streakCount    = 0;
-static TickType_t    lastPressTick  = 0;
-static TickType_t    bestStreak     = 0;
+static TickType_t streakCount = 0;
+static TickType_t lastPressTick = 0;
+static TickType_t bestStreak = 0;
 
 // Task 1 - Button detection and duration measurement (10ms, priority 3)
 // Polls the debounced button driver, measures press duration on release,
@@ -117,6 +117,7 @@ static void task1ButtonScan(void *pvParameters)
             sharedPressWasShort = isShort;
             xSemaphoreGive(xPressMutex);
 
+            // Sendins a signal to notify Task 2 an event is ready
             xSemaphoreGive(xPressSem);
 
             // Visual feedback: green = short, red = long
@@ -152,9 +153,9 @@ static void task2StatsAndBlink(void *pvParameters)
 
     TickType_t xLastWake = xTaskGetTickCount();
 
-    int  blinkRemaining = 0;    // blink half-cycles left (on+off = 2)
-    bool blinkPhase     = false;
-    bool celebrating    = false; // all-LED celebration mode
+    int blinkRemaining = 0; // blink half-cycles left (on+off = 2)
+    bool blinkPhase = false;
+    bool celebrating = false; // all-LED celebration mode
 
     for (;;)
     {
@@ -164,7 +165,7 @@ static void task2StatsAndBlink(void *pvParameters)
             // Read press data under mutex
             xSemaphoreTake(xPressMutex, portMAX_DELAY);
             unsigned long duration = sharedPressDuration;
-            bool isShort           = sharedPressWasShort;
+            bool isShort = sharedPressWasShort;
             xSemaphoreGive(xPressMutex);
 
             // Update statistics under mutex
@@ -302,9 +303,9 @@ static void task3Report(void *pvParameters)
         sp = shortPresses;
         lp = longPresses;
         td = totalDuration;
-        totalPresses  = 0;
-        shortPresses  = 0;
-        longPresses   = 0;
+        totalPresses = 0;
+        shortPresses = 0;
+        longPresses = 0;
         totalDuration = 0;
         xSemaphoreGive(xStatsMutex);
 
@@ -359,35 +360,39 @@ void appLab22Setup()
 
     // Hardware init: button (INPUT_PULLUP) and LEDs (OUTPUT)
     ddButtonSetup(BTN_MAIN, PIN_BUTTON);
-    ddLedSetup(LED_GREEN,  PIN_LED_GREEN);
-    ddLedSetup(LED_RED,    PIN_LED_RED);
+    ddLedSetup(LED_GREEN, PIN_LED_GREEN);
+    ddLedSetup(LED_RED, PIN_LED_RED);
     ddLedSetup(LED_YELLOW, PIN_LED_YELLOW);
 
     srvHeartbeatSetup(LED_HEARTBEAT, PIN_LED_HEARTBEAT);
 
     // Create synchronization primitives
-    xPressSem    = xSemaphoreCreateBinary();
-    xPressMutex  = xSemaphoreCreateMutex();
-    xStatsMutex  = xSemaphoreCreateMutex();
+    xPressSem = xSemaphoreCreateBinary();
+    xPressMutex = xSemaphoreCreateMutex();
+    xStatsMutex = xSemaphoreCreateMutex();
     xStreakMutex = xSemaphoreCreateMutex();
 
     if (!xPressSem || !xPressMutex || !xStatsMutex || !xStreakMutex)
     {
         printf("FATAL: semaphore creation failed (heap too small?)\n");
-        for (;;) {}
+        for (;;)
+        {
+        }
     }
 
     // Create tasks: higher number = higher priority
     BaseType_t ok = pdPASS;
-    ok &= xTaskCreate(task1ButtonScan,    "BtnScan", 256, NULL, 3, NULL);
-    ok &= xTaskCreate(task2StatsAndBlink, "Stats",   256, NULL, 2, NULL);
-    ok &= xTaskCreate(task3Report,        "Report",  512, NULL, 1, NULL);
-    ok &= xTaskCreate(taskHeartbeat,      "HB",      192, NULL, 1, NULL);
+    ok &= xTaskCreate(task1ButtonScan, "BtnScan", 256, NULL, 3, NULL);
+    ok &= xTaskCreate(task2StatsAndBlink, "Stats", 256, NULL, 2, NULL);
+    ok &= xTaskCreate(task3Report, "Report", 512, NULL, 1, NULL);
+    ok &= xTaskCreate(taskHeartbeat, "HB", 192, NULL, 1, NULL);
 
     if (ok != pdPASS)
     {
         printf("FATAL: task creation failed (heap too small?)\n");
-        for (;;) {}
+        for (;;)
+        {
+        }
     }
 
     printf("Lab 2.2 - Button Duration Monitor (FreeRTOS)\n");
