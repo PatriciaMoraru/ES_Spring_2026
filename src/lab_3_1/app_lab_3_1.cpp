@@ -79,6 +79,9 @@
 // LCD page rotation: switch every N display cycles
 #define LCD_PAGE_CYCLES 3
 
+// Statistics window: reset min/max/avg every N display cycles (1 cycle = 1s)
+#define STATS_WINDOW_CYCLES 30
+
 // ── Data types ──
 
 typedef enum
@@ -104,12 +107,14 @@ typedef struct
     AlertLevel_t tempLevel;
     AlertLevel_t ldrLevel;
     AlertLevel_t overallLevel;
+    unsigned long tempAlertCount;
+    unsigned long ldrAlertCount;
 } AlertState_t;
 
 // ── Shared data ──
 
 static SensorData_t sensorData = {0, 0, 0, false, 0.0, 0.0, false};
-static AlertState_t alertState = {LEVEL_NORMAL, LEVEL_NORMAL, LEVEL_NORMAL};
+static AlertState_t alertState = {LEVEL_NORMAL, LEVEL_NORMAL, LEVEL_NORMAL, 0, 0};
 
 // ── Synchronization ──
 
@@ -288,6 +293,9 @@ static void taskCondition(void *pvParameters)
         AlertLevel_t candTemp = evalTempLevel(snap.temperature, curTemp);
         AlertLevel_t candLdr = evalLdrLevel(snap.ldrPercent, curLdr);
 
+        AlertLevel_t prevTemp = curTemp;
+        AlertLevel_t prevLdr = curLdr;
+
         curTemp = applyDebounce(curTemp, candTemp, &pendingTemp, &debounceTemp);
         curLdr = applyDebounce(curLdr, candLdr, &pendingLdr, &debounceLdr);
 
@@ -296,8 +304,29 @@ static void taskCondition(void *pvParameters)
         xSemaphoreTake(xAlertMutex, portMAX_DELAY);
         alertState.tempLevel = curTemp;
         alertState.ldrLevel = curLdr;
+        if (curTemp > prevTemp)
+            alertState.tempAlertCount++;
+        if (curLdr > prevLdr)
+            alertState.ldrAlertCount++;
+
+        bool levelChanged = (overall != alertState.overallLevel);
         alertState.overallLevel = overall;
         xSemaphoreGive(xAlertMutex);
+
+        if (levelChanged)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                ddLedOn(LED_GREEN);
+                ddLedOn(LED_YELLOW);
+                ddLedOn(LED_RED);
+                vTaskDelay(MS_TO_TICKS(100));
+                ddLedOff(LED_GREEN);
+                ddLedOff(LED_YELLOW);
+                ddLedOff(LED_RED);
+                vTaskDelay(MS_TO_TICKS(100));
+            }
+        }
 
         ddLedOff(LED_GREEN);
         ddLedOff(LED_YELLOW);
@@ -332,6 +361,15 @@ static void taskDisplay(void *pvParameters)
     uint8_t cycleCount = 0;
     uint8_t currentPage = 0;
 
+    // ── statistics tracking ──
+    int statsTempMin = 9999, statsTempMax = -9999;
+    long statsTempSum = 0;
+    int statsHumMin = 9999, statsHumMax = -9999;
+    long statsHumSum = 0;
+    int statsLdrMin = 101, statsLdrMax = -1;
+    long statsLdrSum = 0;
+    unsigned int statsSampleCount = 0;
+
     for (;;)
     {
         // ── snapshot shared data ──
@@ -346,6 +384,31 @@ static void taskDisplay(void *pvParameters)
         snapA = alertState;
         xSemaphoreGive(xAlertMutex);
 
+        int tempI = (int)snapS.temperature;
+        int humI = (int)snapS.humidity;
+        int ldrPct = (int)snapS.ldrPercent;
+
+        // ── update statistics ──
+        if (snapS.dhtValid)
+        {
+            if (tempI < statsTempMin)
+                statsTempMin = tempI;
+            if (tempI > statsTempMax)
+                statsTempMax = tempI;
+            statsTempSum += tempI;
+            if (humI < statsHumMin)
+                statsHumMin = humI;
+            if (humI > statsHumMax)
+                statsHumMax = humI;
+            statsHumSum += humI;
+        }
+        if (ldrPct < statsLdrMin)
+            statsLdrMin = ldrPct;
+        if (ldrPct > statsLdrMax)
+            statsLdrMax = ldrPct;
+        statsLdrSum += ldrPct;
+        statsSampleCount++;
+
         // ── page rotation ──
         cycleCount++;
         if (cycleCount >= LCD_PAGE_CYCLES)
@@ -355,9 +418,6 @@ static void taskDisplay(void *pvParameters)
         }
 
         // ── LCD update ──
-        int tempI = (int)snapS.temperature;
-        int humI = (int)snapS.humidity;
-
         char row0[17];
         char row1[17];
 
@@ -382,16 +442,46 @@ static void taskDisplay(void *pvParameters)
         ddLcdPrint(row1);
 
         // ── serial report ──
-        printf("Sensor Report\n");
+        printf("--- Sensor Report ---\n");
         printf("Temp: %d C  | %s", tempI, levelStr(snapA.tempLevel));
         if (!snapS.dhtValid)
             printf(" [!]");
         printf("\n");
         printf("Hum:  %d %%\n", humI);
         printf("Light: %d (%d%%)  | %s  [jit=%d %s]\n",
-               snapS.ldrRaw, snapS.ldrPercent, levelStr(snapA.ldrLevel),
+               snapS.ldrRaw, ldrPct, levelStr(snapA.ldrLevel),
                snapS.ldrJitter, snapS.ldrConnected ? "CONNECTED" : "FLOATING!");
-        printf("Overall: %s\n\n", levelStr(snapA.overallLevel));
+        printf("Alerts triggered: Temp=%lu  Light=%lu\n",
+               snapA.tempAlertCount, snapA.ldrAlertCount);
+        printf("Overall: %s\n", levelStr(snapA.overallLevel));
+
+        // ── periodic statistics report ──
+        if (statsSampleCount >= STATS_WINDOW_CYCLES)
+        {
+            int tempAvg = (int)(statsTempSum / statsSampleCount);
+            int humAvg = (int)(statsHumSum / statsSampleCount);
+            int ldrAvg = (int)(statsLdrSum / statsSampleCount);
+
+            printf("--- %ds Statistics ---\n", STATS_WINDOW_CYCLES);
+            printf("Temp : min=%d  max=%d  avg=%d C\n",
+                   statsTempMin, statsTempMax, tempAvg);
+            printf("Hum  : min=%d  max=%d  avg=%d %%\n",
+                   statsHumMin, statsHumMax, humAvg);
+            printf("Light: min=%d  max=%d  avg=%d %%\n",
+                   statsLdrMin, statsLdrMax, ldrAvg);
+            printf("-----------------\n\n");
+
+            statsTempMin = 9999;
+            statsTempMax = -9999;
+            statsTempSum = 0;
+            statsHumMin = 9999;
+            statsHumMax = -9999;
+            statsHumSum = 0;
+            statsLdrMin = 101;
+            statsLdrMax = -1;
+            statsLdrSum = 0;
+            statsSampleCount = 0;
+        }
 
         vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_DISPLAY));
     }
