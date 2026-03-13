@@ -1,17 +1,14 @@
 // Lab 3.1 - Dual sensor monitoring system (FreeRTOS, Variant C)
 //
-// Sensors:  LDR (analog, A0)  +  DHT11 (digital, pin 22)
-// Display:  LCD 1602 I2C  +  Serial STDIO
-// Alerts:   LED green/yellow/red with hysteresis & anti-bounce
+// Sensors : LDR (analog, A0)  +  DHT11 (digital, pin 22)
+// Output  : LCD 1602 (I2C)    +  Serial monitor
+// Alerts  : Green / Yellow / Red LEDs with hysteresis and debounce
 //
 // FreeRTOS tasks:
-//   1. taskSensorAcq   - reads both sensors            (prio 3, 100ms)
-//   2. taskCondition    - threshold alerting + LEDs     (prio 2, 200ms)
-//   3. taskDisplay      - LCD pages + serial report     (prio 1, 1000ms)
-//   4. taskHeartbeat    - heartbeat LED                 (prio 1, 500ms)
-//
-// Sound sensor (dd_sound) is available but disabled for now.
-// To re-enable: add PIN_SOUND, include dd_sound, and wire into tasks.
+//   1. taskSensorAcq  - reads both sensors             (prio 3, 100 ms)
+//   2. taskCondition   - threshold evaluation + LEDs    (prio 2, 200 ms)
+//   3. taskDisplay     - LCD pages + serial report      (prio 1, 1000 ms)
+//   4. taskHeartbeat   - heartbeat blink                (prio 1, 500 ms)
 
 #include <Arduino.h>
 #include <Arduino_FreeRTOS.h>
@@ -26,7 +23,7 @@
 #include "srv_serial_stdio/srv_serial_stdio.h"
 #include "srv_heartbeat/srv_heartbeat.h"
 
-// ── Pin assignments (avoid 2, 3, 5 — used by FreeRTOS Timer 3) ──
+// Pin assignments (pins 2, 3, 5 are reserved by FreeRTOS Timer 3)
 
 #define PIN_LDR A0
 #define PIN_DHT 22
@@ -38,19 +35,19 @@
 #define PIN_LED_YELLOW 9
 #define PIN_LED_HEARTBEAT 13
 
-// ── Logical LED IDs ──
+// Logical LED IDs (mapped to physical pins in setup)
 
 #define LED_GREEN 0
 #define LED_RED 1
 #define LED_YELLOW 2
 #define LED_HEARTBEAT 3
 
-// ── Tick helper ──
+// Guarantees at least 1 tick even at low ms values
 
 #define MS_TO_TICKS(ms) \
     ((pdMS_TO_TICKS(ms) > 0) ? pdMS_TO_TICKS(ms) : (TickType_t)1)
 
-// ── Task scheduling (ms) ──
+// Task periods (ms)
 
 #define PERIOD_ACQUIRE 100
 #define PERIOD_CONDITION 200
@@ -60,14 +57,13 @@
 // DHT11 physical minimum read interval
 #define DHT_READ_INTERVAL_MS 2000
 
-// ── Threshold configuration — Temperature (°C) ──
+// Temperature thresholds (degrees C)
 
 #define TEMP_WARN_THRESHOLD 28
 #define TEMP_ALERT_THRESHOLD 32
 #define TEMP_HYSTERESIS 2
 
-// ── Threshold configuration — Light level (0-100 %) ──
-// Higher percent = darker = worse (inverted LDR module)
+// Light thresholds (0-100%, higher = darker on this inverted LDR module)
 
 #define LDR_WARN_THRESHOLD 60
 #define LDR_ALERT_THRESHOLD 75
@@ -82,7 +78,7 @@
 // Statistics window: reset min/max/avg every N display cycles (1 cycle = 1s)
 #define STATS_WINDOW_CYCLES 30
 
-// ── Data types ──
+// Data types shared between tasks
 
 typedef enum
 {
@@ -91,6 +87,7 @@ typedef enum
     LEVEL_ALERT
 } AlertLevel_t;
 
+// Raw + processed sensor readings, written by taskSensorAcq
 typedef struct
 {
     int ldrRaw;
@@ -102,6 +99,7 @@ typedef struct
     bool dhtValid;
 } SensorData_t;
 
+// Current alert levels and escalation counters, written by taskCondition
 typedef struct
 {
     AlertLevel_t tempLevel;
@@ -111,17 +109,17 @@ typedef struct
     unsigned long ldrAlertCount;
 } AlertState_t;
 
-// ── Shared data ──
+// Shared data protected by mutexes
 
 static SensorData_t sensorData = {0, 0, 0, false, 0.0, 0.0, false};
 static AlertState_t alertState = {LEVEL_NORMAL, LEVEL_NORMAL, LEVEL_NORMAL, 0, 0};
 
-// ── Synchronization ──
+// Mutexes for safe access from multiple tasks
 
 static SemaphoreHandle_t xSensorMutex = NULL;
 static SemaphoreHandle_t xAlertMutex = NULL;
 
-//  Helper functions (used by taskCondition)
+// Helper: converts alert level enum to a short string for display
 
 static const char *levelStr(AlertLevel_t level)
 {
@@ -217,9 +215,8 @@ static AlertLevel_t applyDebounce(AlertLevel_t current,
     return current;
 }
 
-//  Task 1 — Sensor Acquisition  (priority 3, 100 ms)
-// Reads LDR every cycle.  Reads DHT11 every DHT_READ_INTERVAL_MS
-// (DHT11 needs ≥ 1 s between physical reads).
+// Task 1 - Sensor Acquisition (priority 3, 100 ms)
+// Reads LDR every cycle; reads DHT11 only every 2s due to hardware limit.
 
 static void taskSensorAcq(void *pvParameters)
 {
@@ -266,8 +263,9 @@ static void taskSensorAcq(void *pvParameters)
     }
 }
 
-//  Task 2 — Threshold Conditioning  (priority 2, 200 ms)
-// Reads sensor data, applies hysteresis + anti-bounce, drives LEDs.
+// Task 2 - Threshold Conditioning (priority 2, 200 ms)
+// Evaluates alert levels with hysteresis and debounce, then drives LEDs.
+// Flashes all LEDs briefly when the overall alert level changes.
 
 static void taskCondition(void *pvParameters)
 {
@@ -349,9 +347,9 @@ static void taskCondition(void *pvParameters)
     }
 }
 
-//  Task 3 — Display & Reporting  (priority 1, 1000 ms)
-// LCD alternates between two pages every LCD_PAGE_CYCLES seconds.
-// Serial report is printed every cycle.
+// Task 3 - Display & Reporting (priority 1, 1000 ms)
+// Updates LCD (two alternating pages) and prints serial report each cycle.
+// Also collects min/max/avg statistics and prints a summary periodically.
 
 static void taskDisplay(void *pvParameters)
 {
@@ -361,7 +359,7 @@ static void taskDisplay(void *pvParameters)
     uint8_t cycleCount = 0;
     uint8_t currentPage = 0;
 
-    // ── statistics tracking ──
+    // Min/max/avg statistics, reset every STATS_WINDOW_CYCLES seconds
     int statsTempMin = 9999, statsTempMax = -9999;
     long statsTempSum = 0;
     int statsHumMin = 9999, statsHumMax = -9999;
@@ -372,7 +370,7 @@ static void taskDisplay(void *pvParameters)
 
     for (;;)
     {
-        // ── snapshot shared data ──
+        // Take a consistent snapshot of both shared structs
         SensorData_t snapS;
         AlertState_t snapA;
 
@@ -388,7 +386,7 @@ static void taskDisplay(void *pvParameters)
         int humI = (int)snapS.humidity;
         int ldrPct = (int)snapS.ldrPercent;
 
-        // ── update statistics ──
+        // Track min/max/sum for the statistics window
         if (snapS.dhtValid)
         {
             if (tempI < statsTempMin)
@@ -409,7 +407,7 @@ static void taskDisplay(void *pvParameters)
         statsLdrSum += ldrPct;
         statsSampleCount++;
 
-        // ── page rotation ──
+        // Alternate LCD between page 0 (values) and page 1 (alert status)
         cycleCount++;
         if (cycleCount >= LCD_PAGE_CYCLES)
         {
@@ -417,7 +415,7 @@ static void taskDisplay(void *pvParameters)
             currentPage = (currentPage + 1) % 2;
         }
 
-        // ── LCD update ──
+        // Write current page to LCD
         char row0[17];
         char row1[17];
 
@@ -441,7 +439,7 @@ static void taskDisplay(void *pvParameters)
         ddLcdSetCursor(0, 1);
         ddLcdPrint(row1);
 
-        // ── serial report ──
+        // Print detailed report to serial monitor
         printf("--- Sensor Report ---\n");
         printf("Temp: %d C  | %s", tempI, levelStr(snapA.tempLevel));
         if (!snapS.dhtValid)
@@ -455,7 +453,7 @@ static void taskDisplay(void *pvParameters)
                snapA.tempAlertCount, snapA.ldrAlertCount);
         printf("Overall: %s\n", levelStr(snapA.overallLevel));
 
-        // ── periodic statistics report ──
+        // Print and reset statistics every STATS_WINDOW_CYCLES seconds
         if (statsSampleCount >= STATS_WINDOW_CYCLES)
         {
             int tempAvg = (int)(statsTempSum / statsSampleCount);
@@ -487,7 +485,7 @@ static void taskDisplay(void *pvParameters)
     }
 }
 
-//  Task 4 — Heartbeat  (priority 1, 500 ms)
+// Task 4 - Heartbeat (priority 1, 500 ms)
 
 static void taskHeartbeat(void *pvParameters)
 {
@@ -501,7 +499,7 @@ static void taskHeartbeat(void *pvParameters)
     }
 }
 
-//  Setup — hardware init, RTOS objects, scheduler start
+// Setup - initializes hardware, creates mutexes and tasks, starts scheduler
 
 void appLab31Setup()
 {
