@@ -27,9 +27,9 @@
 #include "srv_serial_stdio/srv_serial_stdio.h"
 #include "srv_heartbeat/srv_heartbeat.h"
 
-// ---------------------------------------------------------------------------
+
 // Pin assignments  (pins 2, 3, 5 reserved by FreeRTOS Timer 3)
-// ---------------------------------------------------------------------------
+
 
 #define PIN_LDR           A0
 #define PIN_DHT           22
@@ -53,9 +53,9 @@
 #define MS_TO_TICKS(ms) \
     ((pdMS_TO_TICKS(ms) > 0) ? pdMS_TO_TICKS(ms) : (TickType_t)1)
 
-// ---------------------------------------------------------------------------
+
 // Task periods (ms)
-// ---------------------------------------------------------------------------
+
 
 #define PERIOD_ACQUIRE   50
 #define PERIOD_CONDITION 100
@@ -65,9 +65,9 @@
 // DHT11 physical minimum read interval
 #define DHT_READ_INTERVAL_MS 2000
 
-// ---------------------------------------------------------------------------
+
 // Signal conditioning parameters
-// ---------------------------------------------------------------------------
+
 
 #define MEDIAN_WINDOW_SIZE 5
 #define EMA_ALPHA_DEFAULT  0.3f
@@ -97,9 +97,9 @@ static volatile uint8_t filterMode = FILT_FULL;
 #define SAT_HUM_MIN       0.0f
 #define SAT_HUM_MAX       100.0f
 
-// ---------------------------------------------------------------------------
+
 // Threshold parameters
-// ---------------------------------------------------------------------------
+
 
 // Temperature (degrees C)
 #define TEMP_WARN_THRESHOLD  28
@@ -120,9 +120,9 @@ static volatile uint8_t filterMode = FILT_FULL;
 // Statistics window in display cycles (1 cycle = PERIOD_DISPLAY ms)
 #define STATS_WINDOW_CYCLES 60
 
-// ---------------------------------------------------------------------------
+
 // Data types
-// ---------------------------------------------------------------------------
+
 
 typedef enum
 {
@@ -176,9 +176,9 @@ typedef struct
     bool  initialized;
 } EmaFilter_t;
 
-// ---------------------------------------------------------------------------
+
 // Shared data protected by mutexes
-// ---------------------------------------------------------------------------
+
 
 static RawData_t       rawData       = {0, 0, 0, false, 0.0f, 0.0f, false};
 static ProcessedData_t processedData = {0.0f, 0.0f, 0.0f};
@@ -187,9 +187,9 @@ static AlertState_t    alertState    = {LEVEL_NORMAL, LEVEL_NORMAL, LEVEL_NORMAL
 static SemaphoreHandle_t xRawMutex  = NULL;   // protects rawData
 static SemaphoreHandle_t xProcMutex = NULL;    // protects processedData + alertState
 
-// ---------------------------------------------------------------------------
+
 // Helpers
-// ---------------------------------------------------------------------------
+
 
 static const char *levelStr(AlertLevel_t level)
 {
@@ -215,9 +215,9 @@ static float saturateF(float value, float lo, float hi)
     return value;
 }
 
-// ---------------------------------------------------------------------------
+
 // Median filter -- push sample, return current window median
-// ---------------------------------------------------------------------------
+
 
 static float medianUpdate(MedianFilter_t *f, float sample)
 {
@@ -246,9 +246,9 @@ static float medianUpdate(MedianFilter_t *f, float sample)
     return sorted[f->count / 2];
 }
 
-// ---------------------------------------------------------------------------
+
 // Exponential moving average -- update and return smoothed value
-// ---------------------------------------------------------------------------
+
 
 static float emaUpdate(EmaFilter_t *f, float sample, float alpha)
 {
@@ -264,9 +264,9 @@ static float emaUpdate(EmaFilter_t *f, float sample, float alpha)
     return f->value;
 }
 
-// ---------------------------------------------------------------------------
+
 // Threshold evaluation with hysteresis
-// ---------------------------------------------------------------------------
+
 
 static AlertLevel_t evalTempLevel(float temp, AlertLevel_t current)
 {
@@ -312,9 +312,9 @@ static AlertLevel_t evalLdrLevel(float percent, AlertLevel_t current)
     return current;
 }
 
-// ---------------------------------------------------------------------------
+
 // Debounce -- only accept a new level after DEBOUNCE_COUNT consecutive agrees
-// ---------------------------------------------------------------------------
+
 
 static AlertLevel_t applyDebounce(AlertLevel_t  current,
                                   AlertLevel_t  candidate,
@@ -347,12 +347,12 @@ static AlertLevel_t applyDebounce(AlertLevel_t  current,
     return current;
 }
 
-// ===========================================================================
+
 // Task 1 -- Sensor Acquisition  (priority 3, 50 ms)
 //
 // Reads LDR every cycle.  Reads DHT11 only every 2 s (hardware limit).
 // Applies saturation to all raw values before storing.
-// ===========================================================================
+
 
 static void taskAcquisition(void *pvParameters)
 {
@@ -408,12 +408,12 @@ static void taskAcquisition(void *pvParameters)
     }
 }
 
-// ===========================================================================
+
 // Task 2 -- Signal Conditioning  (priority 2, 100 ms)
 //
 // Pipeline: snapshot raw --> median filter --> EMA --> threshold eval + LEDs
 // Flashes all LEDs briefly when the overall alert level changes.
-// ===========================================================================
+
 
 static void taskConditioning(void *pvParameters)
 {
@@ -535,12 +535,12 @@ static void taskConditioning(void *pvParameters)
     }
 }
 
-// ===========================================================================
+
 // Task 3 -- Display & Reporting  (priority 1, 500 ms)
 //
 // LCD: two alternating pages (filtered values / raw-vs-filtered comparison).
 // Serial: full report each cycle; periodic statistics summary.
-// ===========================================================================
+
 
 static void taskDisplay(void *pvParameters)
 {
@@ -683,9 +683,9 @@ static void taskDisplay(void *pvParameters)
     }
 }
 
-// ===========================================================================
+
 // Task 4 -- Heartbeat  (priority 1, 500 ms)
-// ===========================================================================
+
 
 static void taskHeartbeat(void *pvParameters)
 {
@@ -699,9 +699,9 @@ static void taskHeartbeat(void *pvParameters)
     }
 }
 
-// ===========================================================================
+
 // Setup -- init hardware, create mutexes and tasks, start scheduler
-// ===========================================================================
+
 
 void appLab32Setup()
 {
