@@ -1,12 +1,12 @@
 #include <Arduino.h>
-#include "lab_3_2/app_lab_3_2.h"
+#include "lab_4_1/app_lab_4_1.h"
 
 void setup()
 {
-    appLab32Setup();
+    appLab41Setup();
 }
 
 void loop()
 {
-    appLab32Loop();
+    appLab41Loop();
 }
