@@ -899,16 +899,21 @@ static void taskHeartbeat(void *pvParameters)
     }
 }
 
-void appLab42Setup()
+
+// Configure serial, relay, motor driver, heartbeat LED, and LCD hardware.
+static void initPeripherals(void)
 {
     srvSerialSetup();
-
-    ddActuatorSetup(BIN_ACT_ID, PIN_BIN_ACT, true);   // active-LOW relay
+    ddActuatorSetup(BIN_ACT_ID, PIN_BIN_ACT, true);
     ddMotorSetup(MOTOR_ID, PIN_MOTOR_EN, PIN_MOTOR_IN1, PIN_MOTOR_IN2);
-
     srvHeartbeatSetup(LED_HB_ID, PIN_LED_HEARTBEAT);
     ddLcdSetup(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS);
+}
 
+// Allocate the six FreeRTOS mutexes that guard shared data between tasks.
+// Halts execution if any allocation fails (insufficient heap).
+static void initMutexes(void)
+{
     xBinCmdMutex  = xSemaphoreCreateMutex();
     xBinActMutex  = xSemaphoreCreateMutex();
     xBinCondMutex = xSemaphoreCreateMutex();
@@ -916,36 +921,57 @@ void appLab42Setup()
     xMotActMutex  = xSemaphoreCreateMutex();
     xMotCondMutex = xSemaphoreCreateMutex();
 
-    if (!xBinCmdMutex || !xBinActMutex || !xBinCondMutex ||
-        !xMotCmdMutex || !xMotActMutex || !xMotCondMutex)
+    bool allValid = xBinCmdMutex && xBinActMutex && xBinCondMutex
+                 && xMotCmdMutex && xMotActMutex && xMotCondMutex;
+
+    if (!allValid)
     {
-        printf("FATAL: mutex creation failed\n");
+        printf("ERR: one or more mutexes could not be allocated\n");
         for (;;) { }
     }
+}
 
-    BaseType_t taskStatus = pdPASS;
-    taskStatus &= xTaskCreate(taskSerialInput, "SerIn",    256, NULL, 1, NULL);
-    taskStatus &= xTaskCreate(taskBinActCtrl, "RelayDrv",  320, NULL, 3, NULL);
-    taskStatus &= xTaskCreate(taskMotorCtrl,  "MotorDrv",  256, NULL, 3, NULL);
-    taskStatus &= xTaskCreate(taskBinCond,    "RelayCnd",  320, NULL, 2, NULL);
-    taskStatus &= xTaskCreate(taskMotorCond,  "MotorCnd",  320, NULL, 2, NULL);
-    taskStatus &= xTaskCreate(taskDisplay,    "LcdRpt",    512, NULL, 1, NULL);
-    taskStatus &= xTaskCreate(taskHeartbeat,  "Pulse",     192, NULL, 1, NULL);
+// Create all seven FreeRTOS tasks (serial input, relay control,
+// motor control, two conditioning tasks, display, heartbeat).
+// Halts if any task cannot be created.
+static void spawnTasks(void)
+{
+    BaseType_t result = pdPASS;
+    result &= xTaskCreate(taskSerialInput, "SerIn",    256, NULL, 1, NULL);
+    result &= xTaskCreate(taskBinActCtrl,  "RelayDrv", 320, NULL, 3, NULL);
+    result &= xTaskCreate(taskMotorCtrl,   "MotorDrv", 256, NULL, 3, NULL);
+    result &= xTaskCreate(taskBinCond,     "RelayCnd", 320, NULL, 2, NULL);
+    result &= xTaskCreate(taskMotorCond,   "MotorCnd", 320, NULL, 2, NULL);
+    result &= xTaskCreate(taskDisplay,     "LcdRpt",   512, NULL, 1, NULL);
+    result &= xTaskCreate(taskHeartbeat,   "Pulse",    192, NULL, 1, NULL);
 
-    if (taskStatus != pdPASS)
+    if (result != pdPASS)
     {
-        printf("ERR: could not create one or more tasks\n");
+        printf("ERR: could not spawn one or more tasks\n");
         for (;;) { }
     }
+}
 
-    printf("Lab 4.2  Dual Actuator Control (Variant C) \n");
-    printf("Relay on pin %d (active-LOW)  |  ", PIN_BIN_ACT);
-    printf("DC motor via L298N  EN=%d  IN1=%d  IN2=%d  max=%d%%\n",
+// Print startup summary to serial: pin assignments, PWM cap, and task periods.
+static void printBanner(void)
+{
+    printf("=== Lab 4.2  Dual Actuator Control (Variant C) ===\n");
+    printf("Relay  : pin %d (active-LOW)\n", PIN_BIN_ACT);
+    printf("Motor  : L298N  EN=pin%d  IN1=pin%d  IN2=pin%d  cap=%d%%\n",
            PIN_MOTOR_EN, PIN_MOTOR_IN1, PIN_MOTOR_IN2, MOTOR_MAX_PCT);
-    printf("Cycle times: relay %dms  motor %dms  cond %dms  lcd %dms\n",
+    printf("Timing : relay %dms | motor %dms | cond %dms | lcd %dms\n",
            PERIOD_BIN_CTRL, PERIOD_MOT_CTRL, PERIOD_CONDITION, PERIOD_DISPLAY);
-    printf("Send 'help' to list available commands.\n");
+    printf("Send 'help' to see the command list.\n");
+}
 
+// Main entry point — called from setup(). Initialises everything
+// and starts the FreeRTOS scheduler (does not return).
+void appLab42Setup()
+{
+    initPeripherals();
+    initMutexes();
+    spawnTasks();
+    printBanner();
     vTaskStartScheduler();
 }
 
