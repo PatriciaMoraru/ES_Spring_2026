@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <Arduino.h>
 
-// When built inside a FreeRTOS environment that uses scanf() (e.g. lab_4_1),
+// When built inside a FreeRTOS environment that uses scanf(),
 // the busy-wait in srvSerialGetChar() would starve all lower-priority tasks.
 #ifdef SERIAL_FREERTOS_YIELD
 #include <Arduino_FreeRTOS.h>
