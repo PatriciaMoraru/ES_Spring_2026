@@ -6,13 +6,13 @@
 // Output              : I2C LCD 1602 + Serial monitor
 //
 // FreeRTOS tasks:
-//   1. taskCmdRead        - scanf() token parsing, routes cmds to both pipelines (event, prio 1)
-//   2. taskBinActCtrl     - binary relay: on/off/toggle/timer, CMD debounce  (75 ms,  prio 3)
-//   3. taskMotorCtrl      - analog motor: ramp + PWM drive                   (50 ms,  prio 3)
-//   4. taskBinCond        - binary: saturation, SW-debounce, false-switch     (100 ms, prio 2)
-//   5. taskMotorCond      - analog: saturation, median filter, overload alert (100 ms, prio 2)
-//   6. taskDisplay        - 3-page LCD rotation + on-demand serial reports    (500 ms, prio 1)
-//   7. taskHeartbeat      - heartbeat blink                                   (500 ms, prio 1)
+//   1. taskSerialInput    - scanf() token parsing, routes cmds to both pipelines (event, prio 1)
+//   2. taskBinActCtrl     - binary relay: on/off/toggle/timer, CMD debounce      (75 ms,  prio 3)
+//   3. taskMotorCtrl      - analog motor: resolve cmd -> target speed/direction   (50 ms,  prio 3)
+//   4. taskBinCond        - binary: saturation, SW-debounce, false-switch         (100 ms, prio 2)
+//   5. taskMotorCond      - analog: saturation, median, ramp, PWM + overload     (100 ms, prio 2)
+//   6. taskDisplay        - 3-page LCD rotation + on-demand serial reports        (500 ms, prio 1)
+//   7. taskHeartbeat      - heartbeat blink                                       (500 ms, prio 1)
 
 #include <Arduino.h>
 #include <Arduino_FreeRTOS.h>
@@ -44,8 +44,7 @@
 #define MS_TO_TICKS(ms) \
     ((pdMS_TO_TICKS(ms) > 0) ? pdMS_TO_TICKS(ms) : (TickType_t)1)
 
-
-
+    
 #define PERIOD_BIN_CTRL  75
 #define PERIOD_MOT_CTRL  50
 #define PERIOD_CONDITION 100
