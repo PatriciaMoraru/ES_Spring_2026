@@ -1,22 +1,16 @@
-// Lab 5.1 — ON-OFF Position Control with Hysteresis (FreeRTOS, Variant B)
+// Lab 5.1 - ON-OFF Temperature Control with Hysteresis (Variant A)
 //
-// Sensor   : potentiometer on PIN_POT (analog) — rotor position feedback
-// Actuator : DC motor via L298N (ENA=PWM, IN1, IN2) — fixed 50% power
-// Input    : 2 buttons (UP/DOWN) for setpoint + Serial STDIO commands
-// Output   : I2C LCD 1602 + Serial monitor
-//
-// Control  : ON-OFF with hysteresis (dead-band)
-//   position < setPoint - hyst  →  motor FWD  (50%)
-//   position > setPoint + hyst  →  motor REV  (50%)
-//   within dead-band            →  motor STOP
+// Sensor   : DHT22 on PIN_DHT
+// Actuator : 5V relay module on PIN_RELAY (active-LOW) — switches a 12V bulb
+// Display  : I2C LCD 1602 + Serial Plotter
+// Input    : Serial STDIO — set <temp> / hyst <band> / status / help
 //
 // FreeRTOS tasks:
-//   1. taskSerialInput  - scanf() command parsing: sp, hyst, status, report  (event,  prio 1)
-//   2. taskButtonInput  - UP/DOWN buttons adjust setpoint with debounce      (50 ms,  prio 2)
-//   3. taskAcquisition  - read potentiometer, median filter                  (50 ms,  prio 2)
-//   4. taskControl      - ON-OFF hysteresis logic, drive motor               (100 ms, prio 3)
-//   5. taskDisplay      - LCD pages + serial report on demand                (500 ms, prio 1)
-//   6. taskHeartbeat    - heartbeat blink                                    (500 ms, prio 1)
+//   1. taskSensorRead  - reads DHT every 2 s, writes SensorData_t      (2000 ms, prio 2)
+//   2. taskControl     - ON-OFF hysteresis, drives relay                ( 500 ms, prio 3)
+//   3. taskDisplay     - LCD pages + Serial Plotter line                (1000 ms, prio 1)
+//   4. taskCmdRead     - serial command parser, adjusts setpoint/hyst   (event-driven, prio 1)
+//   5. taskHeartbeat   - heartbeat blink                                ( 500 ms, prio 1)
 
 #include <Arduino.h>
 #include <Arduino_FreeRTOS.h>
@@ -25,417 +19,196 @@
 #include <string.h>
 
 #include "app_lab_5_1.h"
-#include "dd_motor/dd_motor.h"
-#include "dd_button/dd_button.h"
+#include "dd_dht/dd_dht.h"
+#include "dd_actuator/dd_actuator.h"
 #include "dd_lcd/dd_lcd.h"
+#include "dd_led/dd_led.h"
 #include "srv_serial_stdio/srv_serial_stdio.h"
 #include "srv_heartbeat/srv_heartbeat.h"
 
+// ── Pin assignments (D2, D3, D5 reserved by FreeRTOS Timer 3) ──────────
 
-// Pin assignments  (pins 2, 3, 5 reserved by FreeRTOS Timer 3)
-
-
-#define PIN_POT           A0     // potentiometer wiper — position feedback
-#define PIN_BTN_UP        10     // setpoint increment button (INPUT_PULLUP)
-#define PIN_BTN_DOWN      11     // setpoint decrement button (INPUT_PULLUP)
-#define PIN_MOTOR_EN      9      // L298N ENA — PWM
-#define PIN_MOTOR_IN1     7      // L298N IN1
-#define PIN_MOTOR_IN2     8      // L298N IN2
+#define PIN_DHT 4
+#define PIN_RELAY 7
 #define PIN_LED_HEARTBEAT 13
 
-#define LCD_I2C_ADDR  0x27
-#define LCD_COLS      16
-#define LCD_ROWS      2
+#define LCD_I2C_ADDR 0x27
+#define LCD_COLS 16
+#define LCD_ROWS 2
 
-#define MOTOR_ID      0
-#define BTN_UP_ID     0
-#define BTN_DOWN_ID   1
-#define LED_HB_ID     0
+#define ACT_RELAY 0
+#define LED_HEARTBEAT 0
 
 #define MS_TO_TICKS(ms) \
     ((pdMS_TO_TICKS(ms) > 0) ? pdMS_TO_TICKS(ms) : (TickType_t)1)
 
+// ── Task periods (ms) ──────────────────────────────────────────────────
 
-// Task periods (ms)
+#define PERIOD_SENSOR 2000
+#define PERIOD_CONTROL 500
+#define PERIOD_DISPLAY 1000
+#define PERIOD_HEARTBEAT 500
 
+// ── Default control parameters ─────────────────────────────────────────
 
-#define PERIOD_BUTTON     50
-#define PERIOD_ACQ        50
-#define PERIOD_CONTROL    100
-#define PERIOD_DISPLAY    500
-#define PERIOD_HEARTBEAT  500
+#define DEFAULT_SET_POINT 29.0f
+#define DEFAULT_HYSTERESIS 1.0f
 
+// LCD page rotation: switch every N display cycles
+#define LCD_PAGE_CYCLES 3
 
-// Control parameters
-
-
-#define MOTOR_FIXED_PCT   50       // fixed saturation speed (%)
-#define SP_DEFAULT        512      // default setpoint (0-1023)
-#define HYST_DEFAULT      30       // default hysteresis band (ADC units)
-#define SP_MIN            0
-#define SP_MAX            1023
-#define HYST_MIN          5
-#define HYST_MAX          200
-#define SP_BTN_STEP       10       // setpoint change per button press
-
-#define MEDIAN_BUF_SIZE   5        // samples for median filter
-#define LCD_PAGE_CYCLES   3        // display cycles per page
-
-
-// Control output states
-
-
-typedef enum
-{
-    CTRL_STOP,
-    CTRL_FWD,
-    CTRL_REV
-} CtrlAction_t;
-
-
-// Shared data types
-
+// ── Shared data types ──────────────────────────────────────────────────
 
 typedef struct
 {
-    int16_t setPoint;
-    int16_t hysteresis;
-} SetPointData_t;
+    float temperature;
+    float humidity;
+    bool valid;
+} SensorData_t;
 
 typedef struct
 {
-    int16_t rawPosition;       // latest analogRead (0-1023)
-    int16_t filteredPosition;  // after median filter
-} AcqData_t;
-
-typedef struct
-{
-    CtrlAction_t action;       // STOP / FWD / REV
-    int16_t      error;        // setPoint - filteredPosition
-    uint32_t     lastChangeMs; // timestamp of last action change
-    uint16_t     switchCount;  // total direction changes
+    float setPoint;
+    float hysteresis;
+    bool relayState;
 } ControlData_t;
 
+// ── Shared instances + mutexes ─────────────────────────────────────────
 
-// Shared instances + mutexes
+static SensorData_t sensorData = {0.0f, 0.0f, false};
+static ControlData_t controlData = {DEFAULT_SET_POINT, DEFAULT_HYSTERESIS, false};
 
-
-static SetPointData_t spData   = {SP_DEFAULT, HYST_DEFAULT};
-static AcqData_t      acqData  = {0, 0};
-static ControlData_t  ctrlData = {CTRL_STOP, 0, 0, 0};
-
-static SemaphoreHandle_t xSpMutex   = NULL;
-static SemaphoreHandle_t xAcqMutex  = NULL;
+static SemaphoreHandle_t xSensorMutex = NULL;
 static SemaphoreHandle_t xCtrlMutex = NULL;
 
-static volatile bool reportRequested = false;
-
-
-// Task 1 -- Serial command interpreter (event-driven, priority 1)
+// ── Task 1 — Sensor Acquisition (2000 ms, priority 2) ─────────────────
 //
-// Blocks on scanf() waiting for tokens. Supported commands:
-//   sp N    — set setpoint (0-1023)
-//   hyst N  — set hysteresis band (5-200)
-//   status  — print current control state
-//   report  — request detailed report from display task
-//   help    — show command list
+// Reads the DHT sensor and stores the latest temperature and humidity.
+// The 2 s period satisfies the DHT11 minimum sampling interval;
+// DHT22 is also comfortable at this rate.
 
-
-static void toLower(char *s)
-{
-    while (*s) { if (*s >= 'A' && *s <= 'Z') *s |= 0x20; s++; }
-}
-
-static void printHelp(void)
-{
-    printf("--- Commands ---\n");
-    printf("  sp N     - set setpoint (0-%d)\n", SP_MAX);
-    printf("  hyst N   - set hysteresis (%d-%d)\n", HYST_MIN, HYST_MAX);
-    printf("  status   - print current state\n");
-    printf("  report   - full report\n");
-    printf("  help     - show this list\n");
-}
-
-static void printStatus(void)
-{
-    xSemaphoreTake(xSpMutex, portMAX_DELAY);
-    int16_t sp   = spData.setPoint;
-    int16_t hyst = spData.hysteresis;
-    xSemaphoreGive(xSpMutex);
-
-    xSemaphoreTake(xAcqMutex, portMAX_DELAY);
-    int16_t pos = acqData.filteredPosition;
-    xSemaphoreGive(xAcqMutex);
-
-    xSemaphoreTake(xCtrlMutex, portMAX_DELAY);
-    CtrlAction_t act = ctrlData.action;
-    xSemaphoreGive(xCtrlMutex);
-
-    const char *actStr = (act == CTRL_FWD) ? "FWD" :
-                         (act == CTRL_REV) ? "REV" : "STOP";
-    printf("[STATUS] SP=%d  Pos=%d  Hyst=%d  Motor=%s\n", sp, pos, hyst, actStr);
-}
-
-static void taskSerialInput(void *pvParameters)
-{
-    (void)pvParameters;
-    char token[8];
-
-    for (;;)
-    {
-        if (scanf("%7s", token) != 1)
-            continue;
-
-        toLower(token);
-
-        if (strcmp(token, "help") == 0)   { printHelp();   continue; }
-        if (strcmp(token, "status") == 0) { printStatus(); continue; }
-        if (strcmp(token, "report") == 0) { reportRequested = true; continue; }
-
-        if (strcmp(token, "sp") == 0)
-        {
-            int val = 0;
-            if (scanf("%d", &val) == 1 && val >= SP_MIN && val <= SP_MAX)
-            {
-                xSemaphoreTake(xSpMutex, portMAX_DELAY);
-                spData.setPoint = (int16_t)val;
-                xSemaphoreGive(xSpMutex);
-                printf("[SP] setpoint -> %d\n", val);
-            }
-            else
-            {
-                printf("[ERR] Usage: sp <%d-%d>\n", SP_MIN, SP_MAX);
-            }
-            continue;
-        }
-
-        if (strcmp(token, "hyst") == 0)
-        {
-            int val = 0;
-            if (scanf("%d", &val) == 1 && val >= HYST_MIN && val <= HYST_MAX)
-            {
-                xSemaphoreTake(xSpMutex, portMAX_DELAY);
-                spData.hysteresis = (int16_t)val;
-                xSemaphoreGive(xSpMutex);
-                printf("[SP] hysteresis -> %d\n", val);
-            }
-            else
-            {
-                printf("[ERR] Usage: hyst <%d-%d>\n", HYST_MIN, HYST_MAX);
-            }
-            continue;
-        }
-
-        printf("[ERR] Unknown command '%s'. Type 'help'.\n", token);
-    }
-}
-
-
-// Task 2 -- Button input (periodic 50 ms, priority 2)
-//
-// Polls UP/DOWN buttons with hardware debounce from dd_button.
-// Each press adjusts the setpoint by SP_BTN_STEP, clamped to [SP_MIN, SP_MAX].
-
-
-static void taskButtonInput(void *pvParameters)
+static void taskSensorRead(void *pvParameters)
 {
     (void)pvParameters;
     TickType_t xLastWake = xTaskGetTickCount();
 
     for (;;)
     {
-        ddButtonUpdate(BTN_UP_ID);
-        ddButtonUpdate(BTN_DOWN_ID);
+        bool ok = ddDhtRead();
 
-        bool upPressed   = ddButtonPressed(BTN_UP_ID);
-        bool downPressed = ddButtonPressed(BTN_DOWN_ID);
-
-        if (upPressed || downPressed)
+        xSemaphoreTake(xSensorMutex, portMAX_DELAY);
+        if (ok)
         {
-            xSemaphoreTake(xSpMutex, portMAX_DELAY);
-            int16_t sp = spData.setPoint;
-
-            if (upPressed)
-            {
-                sp += SP_BTN_STEP;
-                if (sp > SP_MAX) sp = SP_MAX;
-            }
-            if (downPressed)
-            {
-                sp -= SP_BTN_STEP;
-                if (sp < SP_MIN) sp = SP_MIN;
-            }
-
-            spData.setPoint = sp;
-            xSemaphoreGive(xSpMutex);
-
-            printf("[BTN] setpoint -> %d\n", sp);
+            sensorData.temperature = ddDhtGetTemperature();
+            sensorData.humidity = ddDhtGetHumidity();
+            sensorData.valid = true;
         }
+        else
+        {
+            sensorData.valid = false;
+        }
+        xSemaphoreGive(xSensorMutex);
 
-        vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_BUTTON));
+        vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_SENSOR));
     }
 }
 
-
-// Task 3 -- Acquisition (periodic 50 ms, priority 2)
+// ── Task 2 — ON-OFF Control with Hysteresis (500 ms, priority 3) ──────
 //
-// Reads the potentiometer via analogRead, pushes the sample into
-// a sliding median filter (MEDIAN_BUF_SIZE samples), and publishes
-// both raw and filtered values into AcqData_t.
-
-
-static void sortBuf(int16_t *arr, uint8_t len)
-{
-    for (uint8_t i = 1; i < len; i++)
-    {
-        int16_t val = arr[i];
-        int8_t  p   = (int8_t)i - 1;
-        while (p >= 0 && arr[p] > val) { arr[p + 1] = arr[p]; p--; }
-        arr[p + 1] = val;
-    }
-}
-
-static int16_t pickMedian(int16_t *samples)
-{
-    int16_t sorted[MEDIAN_BUF_SIZE];
-    memcpy(sorted, samples, sizeof(sorted));
-    sortBuf(sorted, MEDIAN_BUF_SIZE);
-    return sorted[MEDIAN_BUF_SIZE / 2];
-}
-
-static void taskAcquisition(void *pvParameters)
-{
-    (void)pvParameters;
-    TickType_t xLastWake = xTaskGetTickCount();
-
-    int16_t sampleRing[MEDIAN_BUF_SIZE] = {0};
-    uint8_t ringPos = 0;
-
-    for (;;)
-    {
-        int16_t raw = (int16_t)analogRead(PIN_POT);
-
-        sampleRing[ringPos] = raw;
-        ringPos = (ringPos + 1) % MEDIAN_BUF_SIZE;
-
-        int16_t filtered = pickMedian(sampleRing);
-
-        xSemaphoreTake(xAcqMutex, portMAX_DELAY);
-        acqData.rawPosition      = raw;
-        acqData.filteredPosition = filtered;
-        xSemaphoreGive(xAcqMutex);
-
-        vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_ACQ));
-    }
-}
-
-
-// Task 4 -- ON-OFF Controller (periodic 100 ms, priority 3)
-//
-// Reads the filtered position and setpoint, computes the error,
-// and applies hysteresis-based bang-bang control:
-//   error > +hyst  →  motor forward  at MOTOR_FIXED_PCT
-//   error < -hyst  →  motor reverse  at MOTOR_FIXED_PCT
-//   |error| <= hyst →  motor stop    (dead band)
-// The motor is driven directly from this task.
-
+// Reads the latest sensor snapshot and the current setpoint/hysteresis,
+// then applies the ON-OFF law:
+//   temp < (SP - hyst)  →  relay ON  (heat)
+//   temp > (SP + hyst)  →  relay OFF
+//   otherwise           →  keep previous state
 
 static void taskControl(void *pvParameters)
 {
     (void)pvParameters;
     TickType_t xLastWake = xTaskGetTickCount();
 
-    CtrlAction_t prevAction = CTRL_STOP;
-
     for (;;)
     {
-        xSemaphoreTake(xSpMutex, portMAX_DELAY);
-        int16_t sp   = spData.setPoint;
-        int16_t hyst = spData.hysteresis;
-        xSemaphoreGive(xSpMutex);
+        // Read sensor snapshot
+        SensorData_t snap;
+        xSemaphoreTake(xSensorMutex, portMAX_DELAY);
+        snap = sensorData;
+        xSemaphoreGive(xSensorMutex);
 
-        xSemaphoreTake(xAcqMutex, portMAX_DELAY);
-        int16_t pos = acqData.filteredPosition;
-        xSemaphoreGive(xAcqMutex);
-
-        int16_t error = sp - pos;
-
-        CtrlAction_t action = prevAction;
-
-        if (error > hyst)
-            action = CTRL_FWD;
-        else if (error < -hyst)
-            action = CTRL_REV;
-        else if (prevAction != CTRL_STOP)
-        {
-            // Inside dead band: stop only if we were previously moving
-            // and have now entered the band (standard ON-OFF hysteresis)
-            if ((prevAction == CTRL_FWD && error <= 0) ||
-                (prevAction == CTRL_REV && error >= 0))
-                action = CTRL_STOP;
-        }
-
-        // Drive motor
-        if (action == CTRL_FWD)
-            ddMotorSetSpeed(MOTOR_ID, MOTOR_FIXED_PCT, true);
-        else if (action == CTRL_REV)
-            ddMotorSetSpeed(MOTOR_ID, MOTOR_FIXED_PCT, false);
-        else
-            ddMotorStop(MOTOR_ID);
-
-        // Track direction changes
-        uint32_t now = (uint32_t)millis();
-        uint16_t switchInc = (action != prevAction) ? 1 : 0;
-
+        // Read current control parameters
         xSemaphoreTake(xCtrlMutex, portMAX_DELAY);
-        ctrlData.action  = action;
-        ctrlData.error   = error;
-        if (action != prevAction)
-            ctrlData.lastChangeMs = now;
-        ctrlData.switchCount += switchInc;
+        float sp = controlData.setPoint;
+        float hyst = controlData.hysteresis;
+        bool prev = controlData.relayState;
         xSemaphoreGive(xCtrlMutex);
 
-        prevAction = action;
+        bool newState = prev;
+
+        if (snap.valid)
+        {
+            float lo = sp - hyst;
+            float hi = sp + hyst;
+
+            if (snap.temperature < lo)
+                newState = true;
+            else if (snap.temperature > hi)
+                newState = false;
+            // else: keep prev
+        }
+
+        // Drive actuator
+        if (newState)
+            ddActuatorOn(ACT_RELAY);
+        else
+            ddActuatorOff(ACT_RELAY);
+
+        // Write back relay state
+        xSemaphoreTake(xCtrlMutex, portMAX_DELAY);
+        controlData.relayState = newState;
+        xSemaphoreGive(xCtrlMutex);
 
         vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_CONTROL));
     }
 }
 
-
-// Task 5 -- Display & Reporting (priority 1, 500 ms)
+// ── Task 3 — Display & Serial Plotter (1000 ms, priority 1) ───────────
 //
-// LCD rotates through 2 pages every LCD_PAGE_CYCLES cycles:
-//   Page 0: SP=nnn  Pos=nnn  /  Err=nnn  Mot:FWD|REV|STOP
-//   Page 1: Hyst=nn  SW=nn   /  Age: Ns
-
+// LCD alternates between two pages every LCD_PAGE_CYCLES cycles.
+//   Page 0:  T:<temp>C SP:<sp>C   /   Relay:ON|OFF H:+/-<h>
+//   Page 1:  Lo:<lo>  Hi:<hi>     /   Hum:<hum>%
+//
+// Each cycle also emits one Serial Plotter line so the three traces
+// (SetPoint, Temperature, Relay) are visible on the same Y-axis.
 
 static void taskDisplay(void *pvParameters)
 {
     (void)pvParameters;
     TickType_t xLastWake = xTaskGetTickCount();
 
-    uint8_t cycleCount  = 0;
+    uint8_t cycleCount = 0;
     uint8_t currentPage = 0;
 
     for (;;)
     {
-        SetPointData_t snapSP;
-        AcqData_t      snapAcq;
-        ControlData_t  snapCtrl;
+        // Snapshots
+        SensorData_t snapS;
+        xSemaphoreTake(xSensorMutex, portMAX_DELAY);
+        snapS = sensorData;
+        xSemaphoreGive(xSensorMutex);
 
-        xSemaphoreTake(xSpMutex,   portMAX_DELAY); snapSP   = spData;   xSemaphoreGive(xSpMutex);
-        xSemaphoreTake(xAcqMutex,  portMAX_DELAY); snapAcq  = acqData;  xSemaphoreGive(xAcqMutex);
-        xSemaphoreTake(xCtrlMutex, portMAX_DELAY); snapCtrl = ctrlData; xSemaphoreGive(xCtrlMutex);
+        ControlData_t snapC;
+        xSemaphoreTake(xCtrlMutex, portMAX_DELAY);
+        snapC = controlData;
+        xSemaphoreGive(xCtrlMutex);
 
-        const char *actStr = (snapCtrl.action == CTRL_FWD) ? "FWD" :
-                             (snapCtrl.action == CTRL_REV) ? "REV" : "STP";
+        float lo = snapC.setPoint - snapC.hysteresis;
+        float hi = snapC.setPoint + snapC.hysteresis;
 
-        // LCD page rotation
+        // ── LCD page rotation ──
         cycleCount++;
         if (cycleCount >= LCD_PAGE_CYCLES)
         {
-            cycleCount  = 0;
-            currentPage = (uint8_t)((currentPage + 1) % 2);
+            cycleCount = 0;
+            currentPage = (currentPage + 1) % 2;
         }
 
         char row0[17];
@@ -443,18 +216,22 @@ static void taskDisplay(void *pvParameters)
 
         if (currentPage == 0)
         {
-            snprintf(row0, sizeof(row0), "SP:%-4d Pos:%-4d",
-                     snapSP.setPoint, snapAcq.filteredPosition);
-            snprintf(row1, sizeof(row1), "Err:%-4d M:%-3s",
-                     snapCtrl.error, actStr);
+            if (snapS.valid)
+                snprintf(row0, sizeof(row0), "T:%.1fC SP:%.1fC", (double)snapS.temperature, (double)snapC.setPoint);
+            else
+                snprintf(row0, sizeof(row0), "T:--.- SP:%.1fC", (double)snapC.setPoint);
+
+            snprintf(row1, sizeof(row1), "Relay:%-3s H:%.1f",
+                     snapC.relayState ? "ON" : "OFF", (double)snapC.hysteresis);
         }
         else
         {
-            uint32_t ageSec = ((uint32_t)millis() - snapCtrl.lastChangeMs) / 1000UL;
-            snprintf(row0, sizeof(row0), "Hyst:%-3d SW:%-4u",
-                     snapSP.hysteresis, snapCtrl.switchCount);
-            snprintf(row1, sizeof(row1), "Age:%-4lus R:%-4d",
-                     (unsigned long)ageSec, snapAcq.rawPosition);
+            snprintf(row0, sizeof(row0), "Lo:%.1f Hi:%.1f", (double)lo, (double)hi);
+
+            if (snapS.valid)
+                snprintf(row1, sizeof(row1), "Hum:%.1f%%", (double)snapS.humidity);
+            else
+                snprintf(row1, sizeof(row1), "Hum:--.-%%");
         }
 
         ddLcdClear();
@@ -463,28 +240,129 @@ static void taskDisplay(void *pvParameters)
         ddLcdSetCursor(0, 1);
         ddLcdPrint(row1);
 
-        // On-demand detailed report
-        if (reportRequested)
-        {
-            reportRequested = false;
-            printf("--- Position Control Report ---\n");
-            printf("SetPoint     : %d\n",  snapSP.setPoint);
-            printf("Hysteresis   : %d\n",  snapSP.hysteresis);
-            printf("Raw position : %d\n",  snapAcq.rawPosition);
-            printf("Filtered pos : %d\n",  snapAcq.filteredPosition);
-            printf("Error        : %d\n",  snapCtrl.error);
-            printf("Motor        : %s\n",  actStr);
-            printf("Motor speed  : %d%%\n", MOTOR_FIXED_PCT);
-            printf("Dir switches : %u\n",  snapCtrl.switchCount);
-        }
+        // ── Teleplot output ──
+        // Five traces on the same graph showing the hysteresis band:
+        //   Temperature  — actual sensor reading
+        //   SetPoint     — reference value
+        //   Lo           — lower threshold (SP - hyst): relay turns ON below this
+        //   Hi           — upper threshold (SP + hyst): relay turns OFF above this
+        //   Relay        — scaled to SP so it is visible on the same axis (0 = OFF)
+        float relayPlot = snapC.relayState ? snapC.setPoint : 0.0f;
+        float temp = snapS.valid ? snapS.temperature : 0.0f;
+
+        // Teleplot format — drag all 5 from the sidebar onto one chart.
+        printf(">Temperature:%.2f\n", (double)temp);
+        printf(">SetPoint:%.2f\n",    (double)snapC.setPoint);
+        printf(">Lo:%.2f\n",          (double)lo);
+        printf(">Hi:%.2f\n",          (double)hi);
+        printf(">Relay:%.2f\n",       (double)relayPlot);
 
         vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_DISPLAY));
     }
 }
 
+// ── Task 4 — Command Reader (event-driven, priority 1) ────────────────
+//
+// Blocks on scanf() waiting for serial tokens.  Yields via the
+// vTaskDelay(1) inside srvSerialGetChar (SERIAL_FREERTOS_YIELD flag).
+//
+// Commands:
+//   set <value>   — change Set Point (°C)
+//   hyst <value>  — change hysteresis band (°C)
+//   status        — print current state
+//   help          — list commands
 
-// Task 6 -- Heartbeat (priority 1, 500 ms)
+static void taskCmdRead(void *pvParameters)
+{
+    (void)pvParameters;
 
+    char cmd[8];
+
+    for (;;)
+    {
+        if (scanf("%7s", cmd) != 1)
+            continue;
+
+        for (uint8_t i = 0; cmd[i]; i++)
+            if (cmd[i] >= 'A' && cmd[i] <= 'Z')
+                cmd[i] += 32;
+
+        if (strcmp(cmd, "help") == 0)
+        {
+            printf("Commands:\n");
+            printf("  set <temp>  - set target temperature (C)\n");
+            printf("  hyst <val>  - set hysteresis band (C)\n");
+            printf("  status      - print current state\n");
+            printf("  help        - show this list\n");
+            continue;
+        }
+
+        if (strcmp(cmd, "status") == 0)
+        {
+            SensorData_t snapS;
+            xSemaphoreTake(xSensorMutex, portMAX_DELAY);
+            snapS = sensorData;
+            xSemaphoreGive(xSensorMutex);
+
+            ControlData_t snapC;
+            xSemaphoreTake(xCtrlMutex, portMAX_DELAY);
+            snapC = controlData;
+            xSemaphoreGive(xCtrlMutex);
+
+            printf("--- Status ---\n");
+            if (snapS.valid)
+                printf("Temperature : %.2f C\n", (double)snapS.temperature);
+            else
+                printf("Temperature : invalid read\n");
+            printf("Humidity    : %.2f %%\n", (double)snapS.humidity);
+            printf("Set Point   : %.2f C\n", (double)snapC.setPoint);
+            printf("Hysteresis  : %.2f C\n", (double)snapC.hysteresis);
+            printf("Thresholds  : Lo=%.2f  Hi=%.2f\n",
+                   (double)(snapC.setPoint - snapC.hysteresis),
+                   (double)(snapC.setPoint + snapC.hysteresis));
+            printf("Relay       : %s\n", snapC.relayState ? "ON" : "OFF");
+            continue;
+        }
+
+        if (strcmp(cmd, "set") == 0)
+        {
+            float val = 0.0f;
+            if (scanf("%f", &val) == 1 && val > 0.0f && val < 80.0f)
+            {
+                xSemaphoreTake(xCtrlMutex, portMAX_DELAY);
+                controlData.setPoint = val;
+                xSemaphoreGive(xCtrlMutex);
+                printf("[CTRL] Set Point = %.2f C\n", (double)val);
+            }
+            else
+            {
+                printf("[ERR] Usage: set <temp>  (0 - 80)\n");
+            }
+            continue;
+        }
+
+        if (strcmp(cmd, "hyst") == 0)
+        {
+            float val = 0.0f;
+            if (scanf("%f", &val) == 1 && val > 0.0f && val < 20.0f)
+            {
+                xSemaphoreTake(xCtrlMutex, portMAX_DELAY);
+                controlData.hysteresis = val;
+                xSemaphoreGive(xCtrlMutex);
+                printf("[CTRL] Hysteresis = %.2f C\n", (double)val);
+            }
+            else
+            {
+                printf("[ERR] Usage: hyst <band>  (0 - 20)\n");
+            }
+            continue;
+        }
+
+        printf("[ERR] Unknown command '%s'. Type 'help'.\n", cmd);
+    }
+}
+
+// ── Task 5 — Heartbeat (500 ms, priority 1) ───────────────────────────
 
 static void taskHeartbeat(void *pvParameters)
 {
@@ -498,74 +376,57 @@ static void taskHeartbeat(void *pvParameters)
     }
 }
 
-
-// Initialise all peripherals: serial, motor, buttons, LCD, heartbeat LED.
-static void initPeripherals(void)
-{
-    srvSerialSetup();
-    ddMotorSetup(MOTOR_ID, PIN_MOTOR_EN, PIN_MOTOR_IN1, PIN_MOTOR_IN2);
-    ddButtonSetup(BTN_UP_ID,   PIN_BTN_UP);
-    ddButtonSetup(BTN_DOWN_ID, PIN_BTN_DOWN);
-    srvHeartbeatSetup(LED_HB_ID, PIN_LED_HEARTBEAT);
-    ddLcdSetup(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS);
-}
-
-// Allocate mutexes for shared data protection between tasks.
-static void initMutexes(void)
-{
-    xSpMutex   = xSemaphoreCreateMutex();
-    xAcqMutex  = xSemaphoreCreateMutex();
-    xCtrlMutex = xSemaphoreCreateMutex();
-
-    if (!xSpMutex || !xAcqMutex || !xCtrlMutex)
-    {
-        printf("ERR: mutex creation failed\n");
-        for (;;) { }
-    }
-}
-
-// Create all six FreeRTOS tasks. Halts if any allocation fails.
-static void spawnTasks(void)
-{
-    BaseType_t ok = pdPASS;
-    ok &= xTaskCreate(taskSerialInput,  "SerIn",   256, NULL, 1, NULL);
-    ok &= xTaskCreate(taskButtonInput,  "BtnIn",   192, NULL, 2, NULL);
-    ok &= xTaskCreate(taskAcquisition,  "Acq",     256, NULL, 2, NULL);
-    ok &= xTaskCreate(taskControl,      "Ctrl",    256, NULL, 3, NULL);
-    ok &= xTaskCreate(taskDisplay,      "Display", 384, NULL, 1, NULL);
-    ok &= xTaskCreate(taskHeartbeat,    "HB",      192, NULL, 1, NULL);
-
-    if (ok != pdPASS)
-    {
-        printf("ERR: task creation failed\n");
-        for (;;) { }
-    }
-}
-
-static void printBanner(void)
-{
-    printf("=== Lab 5.1  ON-OFF Position Control (Variant B) ===\n");
-    printf("Motor  : L298N  EN=pin%d  IN1=pin%d  IN2=pin%d  speed=%d%%\n",
-           PIN_MOTOR_EN, PIN_MOTOR_IN1, PIN_MOTOR_IN2, MOTOR_FIXED_PCT);
-    printf("Sensor : potentiometer on A0\n");
-    printf("Buttons: UP=pin%d  DOWN=pin%d  (step=%d)\n",
-           PIN_BTN_UP, PIN_BTN_DOWN, SP_BTN_STEP);
-    printf("Default: SP=%d  Hyst=%d\n", SP_DEFAULT, HYST_DEFAULT);
-    printf("Timing : btn %dms | acq %dms | ctrl %dms | lcd %dms\n",
-           PERIOD_BUTTON, PERIOD_ACQ, PERIOD_CONTROL, PERIOD_DISPLAY);
-    printf("Send 'help' for command list.\n");
-}
+// ── Setup & Loop ───────────────────────────────────────────────────────
 
 void appLab51Setup()
 {
-    initPeripherals();
-    initMutexes();
-    spawnTasks();
-    printBanner();
+    srvSerialSetup();
+
+    ddDhtSetup(PIN_DHT, DD_DHT22);
+
+    ddActuatorSetup(ACT_RELAY, PIN_RELAY, true); // active-LOW relay module
+
+    srvHeartbeatSetup(LED_HEARTBEAT, PIN_LED_HEARTBEAT);
+
+    ddLcdSetup(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS);
+
+    xSensorMutex = xSemaphoreCreateMutex();
+    xCtrlMutex = xSemaphoreCreateMutex();
+
+    if (!xSensorMutex || !xCtrlMutex)
+    {
+        printf("FATAL: mutex creation failed\n");
+        for (;;)
+        {
+        }
+    }
+
+    BaseType_t ok = pdPASS;
+    ok &= xTaskCreate(taskSensorRead, "Sensor", 256, NULL, 2, NULL);
+    ok &= xTaskCreate(taskControl, "Control", 256, NULL, 3, NULL);
+    ok &= xTaskCreate(taskDisplay, "Display", 384, NULL, 1, NULL);
+    ok &= xTaskCreate(taskCmdRead, "CmdRead", 256, NULL, 1, NULL);
+    ok &= xTaskCreate(taskHeartbeat, "HB", 192, NULL, 1, NULL);
+
+    if (ok != pdPASS)
+    {
+        printf("FATAL: task creation failed\n");
+        for (;;)
+        {
+        }
+    }
+
+    printf("Lab 5.1 - ON-OFF Temperature Control with Hysteresis\n");
+    printf("Sensor  : DHT22 on pin %d\n", PIN_DHT);
+    printf("Relay   : pin %d (active-LOW)\n", PIN_RELAY);
+    printf("Set Pt  : %.1f C   Hysteresis: %.1f C\n",
+           (double)DEFAULT_SET_POINT, (double)DEFAULT_HYSTERESIS);
+    printf("Type 'help' for commands.\n");
+
     vTaskStartScheduler();
 }
 
 void appLab51Loop()
 {
-    // FreeRTOS scheduler is running; never reached.
+    // FreeRTOS scheduler is running; this is never reached.
 }

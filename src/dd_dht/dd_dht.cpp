@@ -1,5 +1,5 @@
-// DHT11 digital temperature & humidity sensor device driver
-// Wraps the markruys/DHT library. DHT11 supports reads every ~1-2 seconds.
+// DHT digital temperature & humidity sensor device driver
+// Wraps the markruys/DHT library.
 #include <Arduino.h>
 #include <DHT.h>
 #include "dd_dht.h"
@@ -9,9 +9,10 @@ static float lastTemp  = 0.0;
 static float lastHum   = 0.0;
 static bool  lastValid = false;
 
-void ddDhtSetup(uint8_t pin)
+void ddDhtSetup(uint8_t pin, DhtModel_t model)
 {
-    dht.setup(pin, DHT::DHT11);
+    DHT::DHT_MODEL_t hw = (model == DD_DHT22) ? DHT::DHT22 : DHT::DHT11;
+    dht.setup(pin, hw);
 }
 
 bool ddDhtRead(void)
