@@ -51,7 +51,7 @@
 
 // ── Default control parameters ─────────────────────────────────────────
 
-#define DEFAULT_SET_POINT 29.0f
+#define DEFAULT_SET_POINT 26.0f
 #define DEFAULT_HYSTERESIS 1.0f
 
 // LCD page rotation: switch every N display cycles
@@ -252,10 +252,10 @@ static void taskDisplay(void *pvParameters)
 
         // Teleplot format — drag all 5 from the sidebar onto one chart.
         printf(">Temperature:%.2f\n", (double)temp);
-        printf(">SetPoint:%.2f\n",    (double)snapC.setPoint);
-        printf(">Lo:%.2f\n",          (double)lo);
-        printf(">Hi:%.2f\n",          (double)hi);
-        printf(">Relay:%.2f\n",       (double)relayPlot);
+        printf(">SetPoint:%.2f\n", (double)snapC.setPoint);
+        printf(">Lo:%.2f\n", (double)lo);
+        printf(">Hi:%.2f\n", (double)hi);
+        printf(">Relay:%.2f\n", (double)relayPlot);
 
         vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_DISPLAY));
     }

@@ -33,23 +33,21 @@
 #include "srv_serial_stdio/srv_serial_stdio.h"
 #include "srv_heartbeat/srv_heartbeat.h"
 
-
 // -- Pin assignments (D2, D3, D5 reserved by FreeRTOS Timer 3) ----------
 
-#define PIN_LDR           A0
-#define PIN_LED_PWM       9        // PWM on Timer 2, safe with FreeRTOS
+#define PIN_LDR A0
+#define PIN_LED_PWM 9 // PWM on Timer 2, safe with FreeRTOS
 #define PIN_LED_HEARTBEAT 13
 
-#define LCD_I2C_ADDR  0x27
-#define LCD_COLS      16
-#define LCD_ROWS      2
+#define LCD_I2C_ADDR 0x27
+#define LCD_COLS 16
+#define LCD_ROWS 2
 
-#define LED_ACT       0
+#define LED_ACT 0
 #define LED_HEARTBEAT 0
 
 #define MS_TO_TICKS(ms) \
     ((pdMS_TO_TICKS(ms) > 0) ? pdMS_TO_TICKS(ms) : (TickType_t)1)
-
 
 // -- Task periods (ms) --------------------------------------------------
 
@@ -57,67 +55,63 @@
 // Running the control loop at 200 ms keeps the PID from fighting its own
 // delayed echo, which is especially important at low set points where the
 // LDR's logarithmic response makes plant gain higher.
-#define PERIOD_SENSOR    200
-#define PERIOD_CONTROL   200
-#define PERIOD_DISPLAY   500
+#define PERIOD_SENSOR 200
+#define PERIOD_CONTROL 200
+#define PERIOD_DISPLAY 500
 #define PERIOD_HEARTBEAT 500
 
-#define CONTROL_DT_S  (PERIOD_CONTROL / 1000.0f)
+#define CONTROL_DT_S (PERIOD_CONTROL / 1000.0f)
 
 // Exponential moving average weight for the light measurement
 // filteredLight = LIGHT_EMA_ALPHA * raw + (1 - LIGHT_EMA_ALPHA) * filteredLight
 // 0.35 = responsive but noticeably smoother than raw.
-#define LIGHT_EMA_ALPHA  0.35f
-
+#define LIGHT_EMA_ALPHA 0.35f
 
 // -- Default control parameters -----------------------------------------
 
-#define DEFAULT_SET_POINT  50.0f   // target light level in %
+#define DEFAULT_SET_POINT 50.0f // target light level in %
 
 // Tuning notes: the optical loop has almost no delay (LED -> LDR is
 // effectively instantaneous) so the loop is very gain-sensitive. Empirical
 // tests showed Ku ~1.5-2 (the system oscillates at Kp=2.0). These values
 // are ~25-30% of Ku with a small Ki for offset removal and a light Kd to
 // dampen approach without derivative kick from sensor jitter.
-#define DEFAULT_KP         0.5f
-#define DEFAULT_KI         0.1f
-#define DEFAULT_KD         0.02f
+#define DEFAULT_KP 1.0f
+#define DEFAULT_KI 0.15f
+#define DEFAULT_KD 0.05f
 
-#define PID_OUT_MIN        0.0f
-#define PID_OUT_MAX        255.0f
+#define PID_OUT_MIN 0.0f
+#define PID_OUT_MAX 255.0f
 
-#define LCD_PAGE_CYCLES    3
-
+#define LCD_PAGE_CYCLES 3
 
 // -- Shared data types --------------------------------------------------
 
 typedef struct
 {
-    int   raw;        // raw ADC 0..1023
-    float percent;    // 0..100
-    bool  valid;
+    int raw;       // raw ADC 0..1023
+    float percent; // 0..100
+    bool valid;
 } SensorData_t;
 
 typedef struct
 {
-    float setPoint;   // 0..100
+    float setPoint; // 0..100
     float kp;
     float ki;
     float kd;
-    float output;     // last PID output (0..255)
+    float output; // last PID output (0..255)
 } ControlData_t;
-
 
 // -- Shared instances + mutexes -----------------------------------------
 
-static SensorData_t  sensorData  = {0, 0.0f, false};
+static SensorData_t sensorData = {0, 0.0f, false};
 static ControlData_t controlData = {DEFAULT_SET_POINT, DEFAULT_KP, DEFAULT_KI, DEFAULT_KD, 0.0f};
 
-static CtrlPid_t     pid;
+static CtrlPid_t pid;
 
 static SemaphoreHandle_t xSensorMutex = NULL;
-static SemaphoreHandle_t xCtrlMutex   = NULL;
-
+static SemaphoreHandle_t xCtrlMutex = NULL;
 
 // -- Task 1 - Sensor Acquisition (200 ms, priority 2) ------------------
 //
@@ -135,34 +129,32 @@ static void taskSensorRead(void *pvParameters)
     TickType_t xLastWake = xTaskGetTickCount();
 
     float filtered = 0.0f;
-    bool  first    = true;
+    bool first = true;
 
     for (;;)
     {
-        int   raw       = ddLdrRead();
-        float sample    = ddLdrGetLight();
+        int raw = ddLdrRead();
+        float sample = ddLdrGetLight();
 
         if (first)
         {
             filtered = sample;
-            first    = false;
+            first = false;
         }
         else
         {
-            filtered = LIGHT_EMA_ALPHA * sample
-                     + (1.0f - LIGHT_EMA_ALPHA) * filtered;
+            filtered = LIGHT_EMA_ALPHA * sample + (1.0f - LIGHT_EMA_ALPHA) * filtered;
         }
 
         xSemaphoreTake(xSensorMutex, portMAX_DELAY);
-        sensorData.raw     = raw;
+        sensorData.raw = raw;
         sensorData.percent = filtered;
-        sensorData.valid   = true;
+        sensorData.valid = true;
         xSemaphoreGive(xSensorMutex);
 
         vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_SENSOR));
     }
 }
-
 
 // -- Task 2 - PID Control (100 ms, priority 3) -------------------------
 //
@@ -203,7 +195,6 @@ static void taskControl(void *pvParameters)
     }
 }
 
-
 // -- Task 3 - Display & Serial Plotter (500 ms, priority 1) ------------
 //
 // LCD rotates between two pages every LCD_PAGE_CYCLES cycles.
@@ -220,7 +211,7 @@ static void taskDisplay(void *pvParameters)
     (void)pvParameters;
     TickType_t xLastWake = xTaskGetTickCount();
 
-    uint8_t cycleCount  = 0;
+    uint8_t cycleCount = 0;
     uint8_t currentPage = 0;
 
     for (;;)
@@ -238,7 +229,7 @@ static void taskDisplay(void *pvParameters)
         cycleCount++;
         if (cycleCount >= LCD_PAGE_CYCLES)
         {
-            cycleCount  = 0;
+            cycleCount = 0;
             currentPage = (currentPage + 1) % 2;
         }
 
@@ -275,22 +266,19 @@ static void taskDisplay(void *pvParameters)
         ddLcdSetCursor(0, 1);
         ddLcdPrint(row1);
 
-        // Teleplot output — one variable per line, format: >name:value|g:group
-        // All three traces share the group "control" so Teleplot displays
-        // them overlaid on a single plot by default (no manual drag/drop).
-        // Output is scaled from [0..255] to [0..100] so all three fit on
-        // the same Y-axis range.
-        float outPlot   = snapC.output * (100.0f / 255.0f);
+        // Teleplot output — one variable per line, format: >name:value
+        // Output is scaled from [0..255] to [0..100] so all three traces
+        // share the same Y-axis range when overlaid in Teleplot.
+        float outPlot = snapC.output * (100.0f / 255.0f);
         float lightPlot = snapS.valid ? snapS.percent : 0.0f;
 
-        printf(">SetPoint:%.2f|g:control\n", (double)snapC.setPoint);
-        printf(">Light:%.2f|g:control\n",    (double)lightPlot);
-        printf(">Output:%.2f|g:control\n",   (double)outPlot);
+        printf(">SetPoint:%.2f\n", (double)snapC.setPoint);
+        printf(">Light:%.2f\n", (double)lightPlot);
+        printf(">Output:%.2f\n", (double)outPlot);
 
         vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_DISPLAY));
     }
 }
-
 
 // -- Task 4 - Command Reader (event-driven, priority 1) ----------------
 //
@@ -393,9 +381,12 @@ static void taskCmdRead(void *pvParameters)
             if (scanf("%f", &val) == 1 && val >= 0.0f && val < 1000.0f)
             {
                 xSemaphoreTake(xCtrlMutex, portMAX_DELAY);
-                if      (cmd[1] == 'p') controlData.kp = val;
-                else if (cmd[1] == 'i') controlData.ki = val;
-                else                    controlData.kd = val;
+                if (cmd[1] == 'p')
+                    controlData.kp = val;
+                else if (cmd[1] == 'i')
+                    controlData.ki = val;
+                else
+                    controlData.kd = val;
                 ctrlPidReset(&pid);
                 xSemaphoreGive(xCtrlMutex);
                 printf("[CTRL] %c%c = %.3f (PID reset)\n",
@@ -412,7 +403,6 @@ static void taskCmdRead(void *pvParameters)
     }
 }
 
-
 // -- Task 5 - Heartbeat (500 ms, priority 1) ---------------------------
 
 static void taskHeartbeat(void *pvParameters)
@@ -426,7 +416,6 @@ static void taskHeartbeat(void *pvParameters)
         vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_HEARTBEAT));
     }
 }
-
 
 // -- Setup & Loop ------------------------------------------------------
 
@@ -447,25 +436,29 @@ void appLab52Setup()
                 CONTROL_DT_S);
 
     xSensorMutex = xSemaphoreCreateMutex();
-    xCtrlMutex   = xSemaphoreCreateMutex();
+    xCtrlMutex = xSemaphoreCreateMutex();
 
     if (!xSensorMutex || !xCtrlMutex)
     {
         printf("FATAL: mutex creation failed\n");
-        for (;;) { }
+        for (;;)
+        {
+        }
     }
 
     BaseType_t ok = pdPASS;
-    ok &= xTaskCreate(taskSensorRead, "Sensor",  192, NULL, 2, NULL);
-    ok &= xTaskCreate(taskControl,    "Control", 256, NULL, 3, NULL);
-    ok &= xTaskCreate(taskDisplay,    "Display", 384, NULL, 1, NULL);
-    ok &= xTaskCreate(taskCmdRead,    "CmdRead", 256, NULL, 1, NULL);
-    ok &= xTaskCreate(taskHeartbeat,  "HB",      192, NULL, 1, NULL);
+    ok &= xTaskCreate(taskSensorRead, "Sensor", 192, NULL, 2, NULL);
+    ok &= xTaskCreate(taskControl, "Control", 256, NULL, 3, NULL);
+    ok &= xTaskCreate(taskDisplay, "Display", 384, NULL, 1, NULL);
+    ok &= xTaskCreate(taskCmdRead, "CmdRead", 256, NULL, 1, NULL);
+    ok &= xTaskCreate(taskHeartbeat, "HB", 192, NULL, 1, NULL);
 
     if (ok != pdPASS)
     {
         printf("FATAL: task creation failed\n");
-        for (;;) { }
+        for (;;)
+        {
+        }
     }
 
     printf("Lab 5.2 - PID Light Control\n");
