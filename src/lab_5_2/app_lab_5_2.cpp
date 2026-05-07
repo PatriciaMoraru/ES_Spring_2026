@@ -269,12 +269,15 @@ static void taskDisplay(void *pvParameters)
         // Teleplot output — one variable per line, format: >name:value
         // Output is scaled from [0..255] to [0..100] so all three traces
         // share the same Y-axis range when overlaid in Teleplot.
+        //   SetPoint       — target light level (%)
+        //   LightLevel     — measured light level from sensor (%)
+        //   ControlOutput  — PWM actuator output scaled to [0..100]
         float outPlot = snapC.output * (100.0f / 255.0f);
         float lightPlot = snapS.valid ? snapS.percent : 0.0f;
 
         printf(">SetPoint:%.2f\n", (double)snapC.setPoint);
-        printf(">Light:%.2f\n", (double)lightPlot);
-        printf(">Output:%.2f\n", (double)outPlot);
+        printf(">LightLevel:%.2f\n", (double)lightPlot);
+        printf(">ControlOutput:%.2f\n", (double)outPlot);
 
         vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_DISPLAY));
     }

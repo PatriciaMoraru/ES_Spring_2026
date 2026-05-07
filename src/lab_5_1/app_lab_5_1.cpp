@@ -242,20 +242,20 @@ static void taskDisplay(void *pvParameters)
 
         // ── Teleplot output ──
         // Five traces on the same graph showing the hysteresis band:
-        //   Temperature  — actual sensor reading
-        //   SetPoint     — reference value
-        //   Lo           — lower threshold (SP - hyst): relay turns ON below this
-        //   Hi           — upper threshold (SP + hyst): relay turns OFF above this
-        //   Relay        — scaled to SP so it is visible on the same axis (0 = OFF)
+        //   Temperature      — actual sensor reading
+        //   SetPoint         — reference value
+        //   LowerThreshold   — lower threshold (SP - hyst): relay turns ON below this
+        //   UpperThreshold   — upper threshold (SP + hyst): relay turns OFF above this
+        //   RelayState       — scaled to SP so it is visible on the same axis (0 = OFF)
         float relayPlot = snapC.relayState ? snapC.setPoint : 0.0f;
         float temp = snapS.valid ? snapS.temperature : 0.0f;
 
         // Teleplot format — drag all 5 from the sidebar onto one chart.
         printf(">Temperature:%.2f\n", (double)temp);
         printf(">SetPoint:%.2f\n", (double)snapC.setPoint);
-        printf(">Lo:%.2f\n", (double)lo);
-        printf(">Hi:%.2f\n", (double)hi);
-        printf(">Relay:%.2f\n", (double)relayPlot);
+        printf(">LowerThreshold:%.2f\n", (double)lo);
+        printf(">UpperThreshold:%.2f\n", (double)hi);
+        printf(">RelayState:%.2f\n", (double)relayPlot);
 
         vTaskDelayUntil(&xLastWake, MS_TO_TICKS(PERIOD_DISPLAY));
     }
