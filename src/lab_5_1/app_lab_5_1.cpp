@@ -265,12 +265,6 @@ static void taskDisplay(void *pvParameters)
 //
 // Blocks on scanf() waiting for serial tokens.  Yields via the
 // vTaskDelay(1) inside srvSerialGetChar (SERIAL_FREERTOS_YIELD flag).
-//
-// Commands:
-//   set <value>   — change Set Point (°C)
-//   hyst <value>  — change hysteresis band (°C)
-//   status        — print current state
-//   help          — list commands
 
 static void taskCmdRead(void *pvParameters)
 {

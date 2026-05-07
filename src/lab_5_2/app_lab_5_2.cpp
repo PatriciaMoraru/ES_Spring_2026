@@ -284,15 +284,6 @@ static void taskDisplay(void *pvParameters)
 //
 // Blocks on scanf() for serial tokens. Yields via the vTaskDelay(1)
 // inside srvSerialGetChar (SERIAL_FREERTOS_YIELD flag).
-//
-// Commands:
-//   set <0-100>   - change Set Point (%)
-//   kp <value>    - set proportional gain
-//   ki <value>    - set integral gain
-//   kd <value>    - set derivative gain
-//   reset         - clear integral and derivative memory
-//   status        - print current state
-//   help          - list commands
 
 static void taskCmdRead(void *pvParameters)
 {
