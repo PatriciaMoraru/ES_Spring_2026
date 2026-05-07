@@ -289,11 +289,12 @@ static void taskCmdRead(void *pvParameters)
 
         if (strcmp(cmd, "help") == 0)
         {
-            printf("Commands:\n");
-            printf("  set <temp>  - set target temperature (C)\n");
-            printf("  hyst <val>  - set hysteresis band (C)\n");
-            printf("  status      - print current state\n");
-            printf("  help        - show this list\n");
+            printf("=== ON-OFF Temp Control - Commands ===\n");
+            printf("  set <temp>   set target temperature (C)\n");
+            printf("  hyst <val>   set hysteresis band (C)\n");
+            printf("  status       print current state\n");
+            printf("  help         show this list\n");
+            printf("======================================\n");
             continue;
         }
 

@@ -311,14 +311,15 @@ static void taskCmdRead(void *pvParameters)
 
         if (strcmp(cmd, "help") == 0)
         {
-            printf("Commands:\n");
-            printf("  set <0-100> - set target light level (%%)\n");
-            printf("  kp <value>  - set proportional gain\n");
-            printf("  ki <value>  - set integral gain\n");
-            printf("  kd <value>  - set derivative gain\n");
-            printf("  reset       - clear PID integral/derivative\n");
-            printf("  status      - print current state\n");
-            printf("  help        - show this list\n");
+            printf("=== PID Light Control - Commands ===\n");
+            printf("  set <0-100>  set target light level (%%)\n");
+            printf("  kp <value>   proportional gain\n");
+            printf("  ki <value>   integral gain\n");
+            printf("  kd <value>   derivative gain\n");
+            printf("  reset        clear PID state\n");
+            printf("  status       print current values\n");
+            printf("  help         show this list\n");
+            printf("====================================\n");
             continue;
         }
 
